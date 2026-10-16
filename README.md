@@ -62,13 +62,43 @@ open 'reveal://reveal?path=%2FUsers%2Fme'      # a Finder window with your home 
 Why reveal and not open: once a scheme is registered, any page or app can emit a link to it. A
 reveal can show you where a file is; it cannot run it. You double-click if you want it opened.
 
-## Serving it elsewhere (optional)
+## Running it locally
 
-The local server is the normal way to run it. The same `public/` folder also deploys unchanged to
-Cloudflare Workers as static assets (`wrangler.jsonc`, `deploy.sh`, `_headers` for the CSP) when a
-link has to work from a phone or another machine, for example in a calendar event. Note that
-`/reveal` is only useful where the handler app is installed, so on a public host it mostly serves
-`/obsidian`.
+The local server is the normal way to run it: loopback only, no network needed, nothing hosted.
+
+```sh
+brew services start link-bridge      # launchd keeps it up across logins; log: ~/Library/Logs/link-bridge.log
+link-bridge serve --port 5465        # or run it in the foreground yourself
+link-bridge doctor                   # server answering? handler installed?
+```
+
+Port 5465 spells LINK on a phone keypad; `--port` or `LINK_BRIDGE_PORT` picks another. The links
+to hand out are `http://localhost:5465/reveal#…`, `/vault-setup#…` and `/obsidian#…`. Every
+click stays on the machine, which is why `/reveal` and `/vault-setup` can exist at all: their
+handler apps are on this Mac.
+
+## Running it remotely (Cloudflare Workers)
+
+When a link has to work from a phone or another machine, for example in a calendar event, the
+same `public/` folder deploys unchanged to Cloudflare Workers as static assets (`wrangler.jsonc`,
+`_headers` carries the CSP). The server never sees the target: it travels in the URL fragment.
+
+```sh
+npm install -g wrangler              # or: brew install wrangler
+cp deploy.env.example deploy.env     # git-ignored
+$EDITOR deploy.env                   # CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, BRIDGE_DOMAIN
+./deploy.sh                          # runs the tests, then `wrangler deploy --domain $BRIDGE_DOMAIN`
+```
+
+`BRIDGE_DOMAIN` must be a hostname in a zone on that Cloudflare account; Cloudflare creates the
+DNS record. The API token needs the "Edit Cloudflare Workers" template plus Zone access to that
+zone. Values in `deploy.env` may be 1Password secret references (`op://vault/item/field`);
+`deploy.sh` then runs the deploy through `op run` so the secrets never land in a file. On a public
+host only `/obsidian` is useful to everyone: `/reveal` and `/vault-setup` still need the handler
+apps on the Mac that opens the link, and a phone has no Finder.
+
+Both can run at once: local links for what you read on the Mac, the public host for what you read
+elsewhere.
 
 ## Tests
 
