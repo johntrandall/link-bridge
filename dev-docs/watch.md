@@ -1,0 +1,32 @@
+# watch.md — what the link-bridge architect watches while dormant
+
+Shape: software project (`watchbill systems`: link-bridge, doorbell architect, intake `dev-docs/intake/`).
+Architect: the session labelled `🌙 link-bridge …` in herdr (Claude name `link-bridge-architect` from the
+next relaunch; `d89e6d5a` until then).
+
+## Probes (run on waking, and by the bounded watch below)
+
+| Probe | Command | Pass |
+|---|---|---|
+| Local bridge + front door + handlers + plugin, on this Mac | `sh ~/admin-technical/setup/macos/local-front-door/probe.sh` | prints `OK …`, exit 0 |
+| Installed vs released | `brew outdated link-bridge`; `gh release view --repo johntrandall/link-bridge` | installed = latest tag |
+| Tests on main | `node --test test/ && python3 -I -m unittest discover -s test -p 'test_*.py'` | all pass |
+| Handler logs | `tail ~/Library/Logs/{reveal-in-finder,jump-to-session}.log` | no `refused` bursts, no `error` |
+| Consumers | sightline rows resolve `http://link.localhost` (status line shows no "install link-bridge" row) | as expected |
+
+## Bounded scheduled watch (John, 2026-10-16: "put yourself in watch mode")
+
+A session cron runs the first probe every 30 minutes (`13,43 * * * *`), last result in
+`~/.local/state/link-bridge-watch/last.txt`, contract in admin-technical
+`setup/macos/local-front-door/README.md` "Watch". Exit: seven clean days including one SusanBones
+reboot or re-login survived, or John's word; deadline 2026-10-23 17:55 EDT. After that the architect
+runs nothing on a schedule (architect skill section 7.2) and checks the probes above only on waking.
+
+## How John is told
+
+- A failed probe during the bounded watch: one PushNotification plus a short message, once per distinct
+  failure; silence while clean.
+- A request from another agent: handled in listen-mode (negotiate, council if needed, ship within the
+  standing autonomy in `dev-docs/decisions.md`); John hears about it only when it falls outside those bounds
+  or changes a consumer contract he cares about.
+- Outcome of the bounded watch: written into the admin-technical README "Watch" section at its end.
