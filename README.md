@@ -160,6 +160,17 @@ owned by the `statusline-architect` herdr session on John's Macs):
 
 A new page that wants a status-line row goes to the status-line owner, not straight into sightline.
 
+## Requesting a change (for agents and people)
+
+Message the link-bridge owner session (the herdr tab labelled `📡 link-bridge watch …`, Claude
+address `d89e6d5a` until a successor is named) with: the surface that will show the link, the
+scheme or action wanted, and who clicks it. The owner negotiates scope, may convene a short council
+of expert subagents for anything that touches the security model, agrees a plan with you in writing,
+implements it, cuts a release and bumps the tap, and tells the consumers listed under *Interface
+stability*. New routes follow the existing shape: a fragment that never reaches a server, an
+explicit allowlist on the page, and a handler app that re-checks on the Mac and can only reveal,
+open or focus, never run.
+
 ## Security model
 
 Once you tick a browser's "Always allow" for a bridge host, any link to that host opens the app
