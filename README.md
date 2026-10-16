@@ -77,6 +77,32 @@ to hand out are `http://localhost:5465/reveal#…`, `/vault-setup#…` and `/obs
 click stays on the machine, which is why `/reveal` and `/vault-setup` can exist at all: their
 handler apps are on this Mac.
 
+### Dropping the port: a local front door (optional)
+
+`:5465` in every link is noise if you read these links all day. macOS lets only root bind port
+80, so the clean way to lose the port is a small reverse proxy on 80 that routes by name and
+leaves link-bridge running unprivileged on 5465. With [Caddy](https://caddyserver.com):
+
+```
+# Caddyfile
+{
+	default_bind 127.0.0.1 ::1    # loopback only: /reveal and /vault-setup act on THIS Mac
+	admin off
+	auto_https off
+}
+http://link.localhost {
+	reverse_proxy 127.0.0.1:5465
+}
+```
+
+Run Caddy as root from a LaunchDaemon of your own (not `sudo brew services`, which leaves
+root-owned files in the Homebrew prefix), add `127.0.0.1 link.localhost` and `::1 link.localhost`
+to `/etc/hosts` for Safari and command-line tools (Chrome resolves `*.localhost` by itself), and
+check with `lsof -nP -iTCP:80 -sTCP:LISTEN` that only loopback addresses listen. From then on
+`link-bridge url` prints `http://link.localhost/reveal#…` and `link-bridge doctor` reports
+`front door: ok`. Set `LINK_BRIDGE_NAME` if you choose another name. A second local web app later
+gets its own name in the same Caddyfile instead of a port.
+
 ## Running it remotely (Cloudflare Workers)
 
 When a link has to work from a phone or another machine, for example in a calendar event, the
