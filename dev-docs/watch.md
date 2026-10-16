@@ -14,13 +14,15 @@ next relaunch; `d89e6d5a` until then).
 | Handler logs | `tail ~/Library/Logs/{reveal-in-finder,jump-to-session}.log` | no `refused` bursts, no `error` |
 | Consumers | sightline rows resolve `http://link.localhost` (status line shows no "install link-bridge" row) | as expected |
 
-## Bounded scheduled watch (John, 2026-10-16: "put yourself in watch mode")
+## Scheduled probe (John, 2026-10-16: "put yourself in watch mode")
 
 A session cron runs the first probe every 30 minutes (`13,43 * * * *`), last result in
 `~/.local/state/link-bridge-watch/last.txt`, contract in admin-technical
 `setup/macos/local-front-door/README.md` "Watch". Exit: seven clean days including one SusanBones
-reboot or re-login survived, or John's word; deadline 2026-10-23 17:55 EDT. After that the architect
-runs nothing on a schedule (architect skill section 7.2) and checks the probes above only on waking.
+reboot or re-login survived, or John's word; deadline 2026-10-23 17:55 EDT. This is the dormant
+shape's rule (watchbill 0.6.1): the seat itself does nothing on a schedule, the probes its watch.md
+names run silently and wake it only on a failure. After the deadline the remaining probes above are
+checked on waking.
 
 ## How John is told
 
