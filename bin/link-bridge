@@ -4,6 +4,7 @@
     link-bridge serve [--port 5465] [--host 127.0.0.1]   run the local web server (brew services)
     link-bridge install-handler                           build ~/Applications/Reveal in Finder.app
     link-bridge url <path> [--vault-setup]                print the local /reveal (or /vault-setup) link for a path
+                                                          (http://link.localhost/... once the local front door is installed)
     link-bridge doctor                                    is the server up, is the handler registered
 
 The pages turn an https/http link into an app link (obsidian://, reveal://) for places that only
@@ -111,10 +112,33 @@ def short_path(path):
     return urllib.parse.quote(path, safe="/")
 
 
+FRONT_DOOR_NAME = os.environ.get("LINK_BRIDGE_NAME", "link.localhost")
+
+
+def front_door_configured():
+    """True when /etc/hosts carries the front-door name (admin-technical
+    setup/macos/local-front-door installs Caddy on 127.0.0.1:80 and adds the
+    line), so links can drop the port. Chrome resolves *.localhost by itself,
+    but Safari and curl need the hosts line, so that is the signal."""
+    try:
+        with open("/etc/hosts", encoding="utf-8", errors="ignore") as f:
+            return any(line.split()[1:2] == [FRONT_DOOR_NAME]
+                       for line in f if line.strip() and not line.startswith("#"))
+    except OSError:
+        return False
+
+
+def link_base(args):
+    if os.environ.get("LINK_BRIDGE_URL_BASE"):
+        return os.environ["LINK_BRIDGE_URL_BASE"].rstrip("/")
+    if front_door_configured():
+        return f"http://{FRONT_DOOR_NAME}"
+    return f"http://{args.host}:{args.port}"
+
+
 def cmd_url(args):
-    base = f"http://{args.host}:{args.port}"
     page = "vault-setup" if args.vault_setup else "reveal"
-    print(f"{base}/{page}#" + short_path(args.path))
+    print(f"{link_base(args)}/{page}#" + short_path(args.path))
     return 0
 
 
@@ -128,6 +152,18 @@ def cmd_doctor(args):
     except Exception as e:  # noqa: BLE001
         print(f"server:  NOT answering at {url} ({e}); run `brew services start link-bridge`")
         ok = False
+    if front_door_configured():
+        name_url = f"http://{FRONT_DOOR_NAME}/reveal"
+        try:
+            with urllib.request.urlopen(name_url, timeout=3) as r:
+                print(f"front door: ok ({r.status} {name_url})")
+        except Exception as e:  # noqa: BLE001
+            print(f"front door: {FRONT_DOOR_NAME} is in /etc/hosts but {name_url} failed ({e}); "
+                  "sudo launchctl print system/com.johnrandall.local-front-door")
+            ok = False
+    else:
+        print(f"front door: not configured (links carry :{args.port}); optional, see "
+              "admin-technical setup/macos/local-front-door")
     app = os.path.expanduser("~/Applications/Reveal in Finder.app")
     if os.path.isdir(app):
         print(f"handler: ok ({app})")
