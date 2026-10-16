@@ -1,0 +1,21 @@
+# local-front-door: one name-based HTTP front door on this Mac, loopback only.
+# http://link.localhost/... -> link-bridge on 127.0.0.1:5465 (ADR-145).
+# Add a later local web app as another `http://<name>.localhost` block and a
+# matching /etc/hosts line (install.sh adds the lines for every name below).
+#
+# Caddy binds 0.0.0.0 by default; default_bind keeps every listener on loopback,
+# because /reveal and /vault-setup act on this Mac and must not be reachable
+# from the LAN. install.sh verifies that with lsof after start.
+{
+	admin off
+	auto_https off
+	default_bind 127.0.0.1 ::1
+	log {
+		output stderr
+		level WARN
+	}
+}
+
+http://link.localhost {
+	reverse_proxy 127.0.0.1:5465
+}

@@ -5,7 +5,11 @@
     link-bridge install-handler                           build the ~/Applications handler apps (Reveal in Finder, Jump to Session)
     link-bridge url <path> [--vault-setup]                print the local /reveal (or /vault-setup) link for a path
                                                           (http://link.localhost/... once the local front door is installed)
+    link-bridge install-front-door                        Caddy on 127.0.0.1:80: http://link.localhost (root; sudo prompts)
     link-bridge doctor                                    is the server up, is the handler registered
+
+GET /healthz answers "link-bridge <version>" (directly and through the front door), so a status
+line or script can tell the bridge from anything else on the port.
 
 The pages turn an https/http link into an app link (obsidian://, reveal://, obsidian-vault-setup://,
 herdr-jump://) for places that only
@@ -24,6 +28,7 @@ import subprocess
 import sys
 import urllib.parse
 
+VERSION = "0.1.4"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -58,6 +63,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if clean in ROUTES:
             return os.path.join(ROOT, ROUTES[clean])
         return super().translate_path(path)
+
+    def do_GET(self):
+        # /healthz: one line a status line can probe to tell "link-bridge answers here"
+        # from "something else answers on this port". Through the front door too.
+        if urllib.parse.urlsplit(self.path).path.rstrip("/") == "/healthz":
+            body = f"link-bridge {VERSION}\n".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
 
     def end_headers(self):
         for k, v in HEADERS.items():
@@ -137,6 +155,15 @@ def link_base(args):
     return f"http://{args.host}:{args.port}"
 
 
+def cmd_install_front_door(_args):
+    script = os.path.join(os.path.dirname(HERE), "frontdoor", "install.sh")
+    if not os.path.isfile(script):
+        sys.exit(f"link-bridge: front-door installer not found at {script}")
+    if not os.path.exists("/opt/homebrew/opt/caddy/bin/caddy"):
+        sys.exit("link-bridge: install Caddy first: brew install caddy")
+    return subprocess.call(["/bin/sh", script])
+
+
 def cmd_url(args):
     page = "vault-setup" if args.vault_setup else "reveal"
     print(f"{link_base(args)}/{page}#" + short_path(args.path))
@@ -189,6 +216,7 @@ def main(argv=None):
                            help="the /vault-setup link (open or create the Obsidian vault) instead of /reveal")
         p.set_defaults(fn=fn)
     sub.add_parser("install-handler").set_defaults(fn=cmd_install_handler)
+    sub.add_parser("install-front-door").set_defaults(fn=cmd_install_front_door)
     args = ap.parse_args(argv)
     return args.fn(args)
 

@@ -14,7 +14,7 @@ page is included here unchanged; that repository is deprecated in favour of this
 brew tap johntrandall/tap
 brew install link-bridge
 brew services start link-bridge      # http://127.0.0.1:5465, keeps running across logins
-link-bridge install-handler          # ~/Applications/Reveal in Finder.app, the reveal:// handler
+link-bridge install-handler          # ~/Applications: Reveal in Finder.app (reveal://), Jump to Session.app (herdr-jump://)
 brew install obsidian-vault-setup && obsidian-vault-setup install-finder-button   # optional: /vault-setup links
 link-bridge doctor
 ```
@@ -34,7 +34,7 @@ link-bridge url --vault-setup ~/dev/project
 | `/obsidian#vault=…&filepath=…&openmode=tab` | `obsidian://advanced-uri?…` or `obsidian://open?…` | opens a note in Obsidian ("open a note" parameters only) |
 | `/reveal#notes/Plan.md` | `reveal://reveal?path=…` | selects the file or folder in a Finder window; never opens it |
 | `/vault-setup#dev/project` | `obsidian-vault-setup://open?path=…` | opens the Obsidian vault at the folder's git root, or creates it; needs [obsidian-vault-setup](https://github.com/johntrandall/obsidian-vault-setup) and its handler app |
-| `/herdr-jump#<session uuid>` | `herdr-jump://session/<uuid>` | focuses the [herdr](https://herdr.dev) tab holding that Claude Code session; needs a `herdr-jump://` handler (the open-links herdr plugin). The page accepts one UUID (`#<uuid>` or `#session=<uuid>`) and nothing else |
+| `/herdr-jump#<session uuid>` | `herdr-jump://session/<uuid>` | focuses the [herdr](https://herdr.dev) tab holding that Claude Code session (handler: Jump to Session.app, below; inside a herdr pane the [open-links](https://github.com/johntrandall/herdr-open-links) plugin handles the Ctrl+click directly). The page accepts one UUID (`#<uuid>` or `#session=<uuid>`) and nothing else |
 
 `/reveal` and `/vault-setup` take the path two ways. The **short form** is the bare fragment:
 `#notes/Plan.md` is relative to your home folder, `#/Volumes/x/y` is absolute, and only `/` is left
@@ -47,21 +47,34 @@ handlers, which know it; the pages only check shape.
 unchanged. `/reveal` is new and needs a small handler app on the Mac, because browsers refuse to
 navigate from https to `file:` at all.
 
-## The reveal handler
+## The handler apps
 
-`handler/install.sh` builds `~/Applications/Reveal in Finder.app` with `osacompile` and registers
-the `reveal` URL scheme. On a link it runs `handler/reveal_decode.py`, which accepts only
-`reveal://reveal?path=<absolute path>` where the path exists and is not inside an application or
-plug-in bundle, then runs `open -R <path>`. Anything else is refused, logged to
-`~/Library/Logs/reveal-in-finder.log` and announced with a notification.
+Browsers hand a custom scheme to whatever app registered it with Launch Services, so each local
+action is a tiny AppleScript applet in `~/Applications`, built by `link-bridge install-handler`
+(`handler/install.sh`) with `osacompile`. Each one runs a small Python gate inside its own bundle
+before acting, logs to `~/Library/Logs/`, and shows a notification when it refuses a link.
+
+**Reveal in Finder.app** (`reveal://`): `handler/reveal_decode.py` accepts only
+`reveal://reveal?path=<path>` where the path exists (relative means under your home folder) and is
+not inside an application or plug-in bundle, then runs `open -R <path>`. Why reveal and not open:
+once a scheme is registered, any page or app can emit a link to it. A reveal can show you where a
+file is; it cannot run it. You double-click if you want it opened.
+
+**Jump to Session.app** (`herdr-jump://`): `handler/herdr_jump.py` accepts exactly one Claude Code
+session UUID, asks `herdr agent list` which live pane holds it, runs `herdr tab focus` (which also
+switches workspace) and brings the terminal forward (`LINK_BRIDGE_TERMINAL_APP`, default Terminal).
+If the id is no longer live but its `~/.claude/sessions` record carries a user-given name (a `/clear`
+keeps the name and mints a new id), the live pane with that name is focused instead; otherwise a herdr
+notification says "Session gone" and nothing is focused. Nothing from the link ever reaches a shell.
 
 ```sh
-sh handler/install.sh
-open 'reveal://reveal?path=%2FUsers%2Fme'      # a Finder window with your home folder selected
+link-bridge install-handler
+open 'reveal://reveal?path=%2FUsers%2Fme'                    # a Finder window with your home folder selected
+open 'herdr-jump://session/<claude session uuid>'             # that session's herdr tab comes to the front
 ```
 
-Why reveal and not open: once a scheme is registered, any page or app can emit a link to it. A
-reveal can show you where a file is; it cannot run it. You double-click if you want it opened.
+Chrome asks once per site and scheme whether it may open the app; tick "Always allow" for your
+bridge host. Logs: `~/Library/Logs/reveal-in-finder.log`, `~/Library/Logs/jump-to-session.log`.
 
 ## Running it locally
 
@@ -73,7 +86,9 @@ link-bridge serve --port 5465        # or run it in the foreground yourself
 link-bridge doctor                   # server answering? handler installed?
 ```
 
-Port 5465 spells LINK on a phone keypad; `--port` or `LINK_BRIDGE_PORT` picks another. The links
+Port 5465 spells LINK on a phone keypad; `--port` or `LINK_BRIDGE_PORT` picks another. `GET /healthz`
+answers `link-bridge <version>`, directly and through the front door, so a status line can tell the
+bridge from anything else that might sit on a port. The links
 to hand out are `http://127.0.0.1:5465/reveal#…`, `/vault-setup#…` and `/obsidian#…` (`link-bridge url` prints them). Every
 click stays on the machine, which is why `/reveal` and `/vault-setup` can exist at all: their
 handler apps are on this Mac.
@@ -96,7 +111,11 @@ http://link.localhost {
 }
 ```
 
-Run Caddy as root from a LaunchDaemon of your own (not `sudo brew services`, which leaves
+A ready-made kit is in [`frontdoor/`](frontdoor/) and runs with `brew install caddy &&
+link-bridge install-front-door`: that Caddyfile, a LaunchDaemon plist with a full
+`ServiceDescription`, and an installer that validates the config, copies it root-owned, adds the
+hosts lines, bootstraps the daemon and verifies that only loopback listens. Or by hand:
+run Caddy as root from a LaunchDaemon of your own (not `sudo brew services`, which leaves
 root-owned files in the Homebrew prefix), add `127.0.0.1 link.localhost` and `::1 link.localhost`
 to `/etc/hosts` for Safari and command-line tools (Chrome resolves `*.localhost` by itself), and
 check with `sudo lsof -nP -iTCP:80 -sTCP:LISTEN` (root's listener is invisible to an unprivileged `lsof`; `netstat -an -p tcp | grep '\.80 '` also works) that only loopback addresses listen. From then on
@@ -181,8 +200,8 @@ As far as we can tell (checked 2026-10-15), the Obsidian page is also the most c
 ## Tests
 
 ```sh
-node --test test/                                                  # page logic (obsidian.js, reveal.js)
-python3 -I -m unittest discover -s test -p 'test_reveal_decode.py'  # handler decoder
+node --test test/                                         # page logic (obsidian, reveal, vault-setup, herdr-jump)
+python3 -I -m unittest discover -s test -p 'test_*.py'    # handler gates (reveal_decode, herdr_jump)
 ```
 
 ## License

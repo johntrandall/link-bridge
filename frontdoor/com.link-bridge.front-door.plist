@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.link-bridge.front-door</string>
+
+    <key>ServiceDescription</key>
+    <string>Local front door: Caddy on port 80, loopback only, routing by hostname to local web apps so their links need no port number. Today one route: http://link.localhost -> link-bridge on 127.0.0.1:5465 (the pages that turn a web link into an app link: /reveal selects a file in Finder, /obsidian opens a note, /vault-setup opens or creates a vault). the link-bridge README, "Dropping the port".
+
+WHY A ROOT LAUNCHDAEMON: binding port 80 as a user is refused on macOS (EACCES, Verified 2026-10-16), so Caddy must start as root. It is deliberately NOT `sudo brew services start caddy`: that leaves root-owned files under the Homebrew prefix and later breaks non-root `brew upgrade` and `brew cleanup`. This plist runs the Homebrew caddy binary directly; the binary stays brew-managed, the service does not.
+
+WHY LOOPBACK ONLY: Caddy listens on all interfaces by default. The Caddyfile's global `default_bind 127.0.0.1 ::1` restricts every listener to loopback, since /reveal and /vault-setup act on this Mac. After any change run `lsof -nP -iTCP:80 -sTCP:LISTEN` and expect only 127.0.0.1:80 and [::1]:80.
+
+DEPENDS ON: /opt/homebrew/opt/caddy/bin/caddy (brew formula caddy; the opt path survives upgrades), /usr/local/etc/link-bridge-front-door/Caddyfile (root-owned 0644, copied by install.sh from admin-technical frontdoor/), link-bridge running on 5465 (brew services, the logged-in user), and /etc/hosts lines "127.0.0.1 link.localhost" and "::1 link.localhost" for Safari and CLI tools (Chrome resolves *.localhost itself). Those lines keep Fleet policy 49 passing because it checks the address, not the name.
+
+OPS: `sudo launchctl print system/com.link-bridge.front-door`; restart with `sudo launchctl kickstart -k system/com.link-bridge.front-door` after editing the Caddyfile (validate first: `caddy validate --config /usr/local/etc/link-bridge-front-door/Caddyfile`). Log: /Library/Logs/link-bridge-front-door.log. Health: `curl -s -o /dev/null -w '%{http_code}' http://link.localhost/reveal` -> 200, and `link-bridge doctor`. Remove with frontdoor/uninstall.sh.</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/opt/caddy/bin/caddy</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>/usr/local/etc/link-bridge-front-door/Caddyfile</string>
+        <string>--adapter</string>
+        <string>caddyfile</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/var/root</string>
+        <key>XDG_CONFIG_HOME</key>
+        <string>/var/root/.config</string>
+        <key>XDG_DATA_HOME</key>
+        <string>/var/root/.local/share</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Standard</string>
+
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/link-bridge-front-door.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/link-bridge-front-door.log</string>
+</dict>
+</plist>
