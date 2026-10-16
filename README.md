@@ -146,6 +146,20 @@ apps on the Mac that opens the link, and a phone has no Finder.
 Both can run at once: local links for what you read on the Mac, the public host for what you read
 elsewhere.
 
+## Interface stability
+
+Other tools depend on these; treat them as a contract and tell the consumers before changing or
+renaming any of them (today: the Claude Code status line, [sightline](https://github.com/johntrandall/claude-statusline),
+owned by the `statusline-architect` herdr session on John's Macs):
+
+- `GET /healthz` → `200`, body starting `link-bridge` (then a space and the version)
+- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`
+- the short home-relative fragment form (`#notes/Plan.md`, `#/abs/path`) beside `#path=…`
+- the install command a consumer shows when the bridge is not running:
+  `brew install johntrandall/tap/link-bridge && brew services start link-bridge && link-bridge install-handler`
+
+A new page that wants a status-line row goes to the status-line owner, not straight into sightline.
+
 ## Security model
 
 Once you tick a browser's "Always allow" for a bridge host, any link to that host opens the app
