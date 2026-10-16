@@ -2,7 +2,7 @@
 """link-bridge: serve the bridge pages from this Mac, and manage the reveal:// handler.
 
     link-bridge serve [--port 5465] [--host 127.0.0.1]   run the local web server (brew services)
-    link-bridge install-handler                           build ~/Applications/Reveal in Finder.app
+    link-bridge install-handler                           build the ~/Applications handler apps (Reveal in Finder, Jump to Session)
     link-bridge url <path> [--vault-setup]                print the local /reveal (or /vault-setup) link for a path
                                                           (http://link.localhost/... once the local front door is installed)
     link-bridge doctor                                    is the server up, is the handler registered
@@ -165,12 +165,13 @@ def cmd_doctor(args):
     else:
         print(f"front door: not configured (links carry :{args.port}); optional, see "
               "admin-technical setup/macos/local-front-door")
-    app = os.path.expanduser("~/Applications/Reveal in Finder.app")
-    if os.path.isdir(app):
-        print(f"handler: ok ({app})")
-    else:
-        print("handler: missing; run `link-bridge install-handler`")
-        ok = False
+    for app_name, scheme in (("Reveal in Finder", "reveal://"), ("Jump to Session", "herdr-jump://")):
+        app = os.path.expanduser(f"~/Applications/{app_name}.app")
+        if os.path.isdir(app):
+            print(f"handler: ok ({scheme} -> {app})")
+        else:
+            print(f"handler: {app_name}.app missing ({scheme}); run `link-bridge install-handler`")
+            ok = False
     return 0 if ok else 1
 
 
