@@ -13,20 +13,20 @@ page is included here unchanged; that repository is deprecated in favour of this
 ```bash
 brew tap johntrandall/tap
 brew install link-bridge
-brew services start link-bridge      # http://localhost:5465, keeps running across logins
+brew services start link-bridge      # http://127.0.0.1:5465, keeps running across logins
 link-bridge install-handler          # ~/Applications/Reveal in Finder.app, the reveal:// handler
 brew install obsidian-vault-setup && obsidian-vault-setup install-finder-button   # optional: /vault-setup links
 link-bridge doctor
 ```
 
 Without Homebrew: `git clone https://github.com/johntrandall/link-bridge && cd link-bridge && ./install.sh`
-puts `link-bridge` on your PATH; run `link-bridge serve` from a LaunchAgent of your own.
+links `link-bridge` into `~/.local/bin` (make sure that is on your PATH); run `link-bridge serve` from a LaunchAgent of your own.
 
 ```bash
 link-bridge url ~/notes/Plan.md
-# http://localhost:5465/reveal#notes/Plan.md
+# http://127.0.0.1:5465/reveal#notes/Plan.md   (http://link.localhost/… once the front door below is installed)
 link-bridge url --vault-setup ~/dev/project
-# http://localhost:5465/vault-setup#dev/project
+# http://127.0.0.1:5465/vault-setup#dev/project
 ```
 
 | Route | Forwards to | What happens |
@@ -73,7 +73,7 @@ link-bridge doctor                   # server answering? handler installed?
 ```
 
 Port 5465 spells LINK on a phone keypad; `--port` or `LINK_BRIDGE_PORT` picks another. The links
-to hand out are `http://localhost:5465/reveal#…`, `/vault-setup#…` and `/obsidian#…`. Every
+to hand out are `http://127.0.0.1:5465/reveal#…`, `/vault-setup#…` and `/obsidian#…` (`link-bridge url` prints them). Every
 click stays on the machine, which is why `/reveal` and `/vault-setup` can exist at all: their
 handler apps are on this Mac.
 
@@ -98,7 +98,7 @@ http://link.localhost {
 Run Caddy as root from a LaunchDaemon of your own (not `sudo brew services`, which leaves
 root-owned files in the Homebrew prefix), add `127.0.0.1 link.localhost` and `::1 link.localhost`
 to `/etc/hosts` for Safari and command-line tools (Chrome resolves `*.localhost` by itself), and
-check with `lsof -nP -iTCP:80 -sTCP:LISTEN` that only loopback addresses listen. From then on
+check with `sudo lsof -nP -iTCP:80 -sTCP:LISTEN` (root's listener is invisible to an unprivileged `lsof`; `netstat -an -p tcp | grep '\.80 '` also works) that only loopback addresses listen. From then on
 `link-bridge url` prints `http://link.localhost/reveal#…` and `link-bridge doctor` reports
 `front door: ok`. Set `LINK_BRIDGE_NAME` if you choose another name. A second local web app later
 gets its own name in the same Caddyfile instead of a port.
