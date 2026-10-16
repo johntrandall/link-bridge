@@ -1,0 +1,17 @@
+// link-bridge: static https pages that forward to app links (obsidian://, reveal://), so those
+// links are clickable where only https links are: Google Calendar, chat and ticket tools, and a
+// terminal status line that linkifies only http(s).
+// Static assets only: no Worker script runs, and nothing can log the URL fragment (browsers never send it).
+//
+// The hostname is not in this file. ./deploy.sh passes it with `wrangler deploy --domain`, from deploy.env.
+{
+  "name": "link-bridge",
+  "compatibility_date": "2026-10-16",
+  "assets": {
+    "directory": "./public",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "workers_dev": false,
+  "observability": { "enabled": false }
+}

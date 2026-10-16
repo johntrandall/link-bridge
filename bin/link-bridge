@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""link-bridge: serve the bridge pages from this Mac, and manage the reveal:// handler.
+
+    link-bridge serve [--port 5465] [--host 127.0.0.1]   run the local web server (brew services)
+    link-bridge install-handler                           build ~/Applications/Reveal in Finder.app
+    link-bridge url <path> [--vault-setup]                print the local /reveal (or /vault-setup) link for a path
+    link-bridge doctor                                    is the server up, is the handler registered
+
+The pages turn an https/http link into an app link (obsidian://, reveal://) for places that only
+make web links clickable. Serving them from 127.0.0.1 keeps every click on this machine, works
+with no network, and needs no hosting. The target travels in the URL fragment, which the browser
+never sends, so the server log never sees a note or file name.
+
+Standard library only, so the Homebrew formula needs no virtualenv. Default port 5465 spells
+LINK on a phone keypad; pick another with --port or LINK_BRIDGE_PORT if it clashes.
+"""
+import argparse
+import http.server
+import os
+import socketserver
+import subprocess
+import sys
+import urllib.parse
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 5465
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+# In the repo: bin/../public. Installed by Homebrew: libexec/bin/../public (same shape).
+ROOT = os.environ.get("LINK_BRIDGE_ROOT") or os.path.join(os.path.dirname(HERE), "public")
+HANDLER_DIR = os.path.join(os.path.dirname(HERE), "handler")
+
+# Same policy as public/_headers (which Cloudflare reads and a local server does not).
+HEADERS = {
+    "X-Robots-Tag": "noindex, nofollow",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; "
+                               "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "Cache-Control": "no-cache",
+}
+# Routes without an extension serve the matching page, like Cloudflare's drop-trailing-slash.
+ROUTES = {"/": "index.html", "/obsidian": "obsidian.html", "/reveal": "reveal.html",
+          "/vault-setup": "vault-setup.html"}
+
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    server_version = "link-bridge"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=ROOT, **kwargs)
+
+    def translate_path(self, path):
+        clean = urllib.parse.urlsplit(path).path.rstrip("/") or "/"
+        if clean in ROUTES:
+            return os.path.join(ROOT, ROUTES[clean])
+        return super().translate_path(path)
+
+    def end_headers(self):
+        for k, v in HEADERS.items():
+            self.send_header(k, v)
+        super().end_headers()
+
+    def list_directory(self, path):
+        self.send_error(404)
+        return None
+
+    def do_POST(self):
+        self.send_error(405)
+
+    def log_message(self, fmt, *args):
+        # The fragment never arrives, so this is only method, path and status.
+        sys.stderr.write("%s %s\n" % (self.log_date_time_string(), fmt % args))
+
+
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def cmd_serve(args):
+    if not os.path.isfile(os.path.join(ROOT, "reveal.html")):
+        sys.exit(f"link-bridge: no pages at {ROOT} (set LINK_BRIDGE_ROOT)")
+    with Server((args.host, args.port), Handler) as httpd:
+        sys.stderr.write(f"link-bridge: serving {ROOT} on http://{args.host}:{args.port}/\n")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
+def cmd_install_handler(_args):
+    script = os.path.join(HANDLER_DIR, "install.sh")
+    if not os.path.isfile(script):
+        sys.exit(f"link-bridge: handler installer not found at {script}")
+    return subprocess.call(["/bin/sh", script])
+
+
+def short_path(path):
+    """The fragment form of a path: home-relative when under the home folder, else absolute.
+    Only / is left unencoded, so the link stays readable and a terminal's URL scanner keeps
+    it whole (spaces and the like are percent-encoded)."""
+    path = os.path.abspath(path)
+    home = os.path.expanduser("~")
+    if path == home:
+        return ""
+    if path.startswith(home + os.sep):
+        path = path[len(home) + 1:]
+    return urllib.parse.quote(path, safe="/")
+
+
+def cmd_url(args):
+    base = f"http://{args.host}:{args.port}"
+    page = "vault-setup" if args.vault_setup else "reveal"
+    print(f"{base}/{page}#" + short_path(args.path))
+    return 0
+
+
+def cmd_doctor(args):
+    import urllib.request
+    ok = True
+    url = f"http://{args.host}:{args.port}/reveal"
+    try:
+        with urllib.request.urlopen(url, timeout=3) as r:
+            print(f"server:  ok ({r.status} {url})")
+    except Exception as e:  # noqa: BLE001
+        print(f"server:  NOT answering at {url} ({e}); run `brew services start link-bridge`")
+        ok = False
+    app = os.path.expanduser("~/Applications/Reveal in Finder.app")
+    if os.path.isdir(app):
+        print(f"handler: ok ({app})")
+    else:
+        print("handler: missing; run `link-bridge install-handler`")
+        ok = False
+    return 0 if ok else 1
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="link-bridge", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name, fn in (("serve", cmd_serve), ("url", cmd_url), ("doctor", cmd_doctor)):
+        p = sub.add_parser(name)
+        p.add_argument("--host", default=os.environ.get("LINK_BRIDGE_HOST", DEFAULT_HOST))
+        p.add_argument("--port", type=int, default=int(os.environ.get("LINK_BRIDGE_PORT", DEFAULT_PORT)))
+        if name == "url":
+            p.add_argument("path")
+            p.add_argument("--vault-setup", action="store_true",
+                           help="the /vault-setup link (open or create the Obsidian vault) instead of /reveal")
+        p.set_defaults(fn=fn)
+    sub.add_parser("install-handler").set_defaults(fn=cmd_install_handler)
+    args = ap.parse_args(argv)
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
