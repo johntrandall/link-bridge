@@ -7,7 +7,8 @@
                                                           (http://link.localhost/... once the local front door is installed)
     link-bridge doctor                                    is the server up, is the handler registered
 
-The pages turn an https/http link into an app link (obsidian://, reveal://) for places that only
+The pages turn an https/http link into an app link (obsidian://, reveal://, obsidian-vault-setup://,
+herdr-jump://) for places that only
 make web links clickable. Serving them from 127.0.0.1 keeps every click on this machine, works
 with no network, and needs no hosting. The target travels in the URL fragment, which the browser
 never sends, so the server log never sees a note or file name.
@@ -43,7 +44,7 @@ HEADERS = {
 }
 # Routes without an extension serve the matching page, like Cloudflare's drop-trailing-slash.
 ROUTES = {"/": "index.html", "/obsidian": "obsidian.html", "/reveal": "reveal.html",
-          "/vault-setup": "vault-setup.html"}
+          "/vault-setup": "vault-setup.html", "/herdr-jump": "herdr-jump.html"}
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):

@@ -34,6 +34,7 @@ link-bridge url --vault-setup ~/dev/project
 | `/obsidian#vault=…&filepath=…&openmode=tab` | `obsidian://advanced-uri?…` or `obsidian://open?…` | opens a note in Obsidian ("open a note" parameters only) |
 | `/reveal#notes/Plan.md` | `reveal://reveal?path=…` | selects the file or folder in a Finder window; never opens it |
 | `/vault-setup#dev/project` | `obsidian-vault-setup://open?path=…` | opens the Obsidian vault at the folder's git root, or creates it; needs [obsidian-vault-setup](https://github.com/johntrandall/obsidian-vault-setup) and its handler app |
+| `/herdr-jump#<session uuid>` | `herdr-jump://session/<uuid>` | focuses the [herdr](https://herdr.dev) tab holding that Claude Code session; needs a `herdr-jump://` handler (the open-links herdr plugin). The page accepts one UUID (`#<uuid>` or `#session=<uuid>`) and nothing else |
 
 `/reveal` and `/vault-setup` take the path two ways. The **short form** is the bare fragment:
 `#notes/Plan.md` is relative to your home folder, `#/Volumes/x/y` is absolute, and only `/` is left
