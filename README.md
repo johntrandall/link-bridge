@@ -100,6 +100,57 @@ apps on the Mac that opens the link, and a phone has no Finder.
 Both can run at once: local links for what you read on the Mac, the public host for what you read
 elsewhere.
 
+## Security model
+
+Once you tick a browser's "Always allow" for a bridge host, any link to that host opens the app
+without a prompt, so a link someone else crafts must not be able to do more than open. Each page
+therefore forwards only a fixed set of parameters and refuses anything else: `/obsidian` the
+"open a note" parameters (Advanced URI can also run commands and write files via `commandid`,
+`data`, `mode`, …; those are refused), `/reveal` and `/vault-setup` a single path. Beyond the
+page, each handler app re-checks the link on the Mac (`reveal_decode.py`; obsidian-vault-setup's
+`url --decode`): the path must exist, a reveal never opens anything, a vault-setup path must be
+under your home folder. The pages load nothing from other sites and ship with a strict Content
+Security Policy, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and `X-Robots-Tag:
+noindex`.
+
+What the bridge cannot hide: the app that shows the link sees the whole link. Google Calendar
+stores it in the event, and its click-through redirect passes the full URL, fragment included,
+through Google.
+
+## Prior art, and why yet another one
+
+The `/obsidian` page began life as [obsidian-link-bridge](https://github.com/johntrandall/obsidian-link-bridge),
+itself yet another Obsidian link bridge. Others got there first, and they are worth a look:
+
+- [obsid.net](https://obsid.net) ([source](https://github.com/jdevalk/obsid.net)): a redirect service, also
+  self-hostable as a Cloudflare Worker, that turns `vault` and `file` query parameters into `obsidian://open` links.
+- [Ibraheem-Khalil/obsidian-link-bridge](https://github.com/Ibraheem-Khalil/obsidian-link-bridge) (2025): a
+  one-page redirect that reads `vault` and `file` from the query string and opens `obsidian://open`.
+- [SvenAkk/obsidian-link-bridge](https://github.com/SvenAkk/obsidian-link-bridge): a static page on GitHub Pages
+  that carries a note path and line in the URL fragment and opens it with Advanced URI.
+
+Why another one: the two GitHub bridges carry no license, and without one nobody may legally copy, modify or
+redistribute their code. obsid.net is MIT-licensed (stated on its site) and self-hostable, but it reads the note
+from the query string in server code and only produces `obsidian://open` links. This project keeps the target out
+of every request, runs no server code on a public host, supports Advanced URI, runs locally with nothing hosted at
+all, reaches beyond Obsidian (Finder, vault setup), and is **MIT-licensed** (see [LICENSE](LICENSE)): fork it,
+change it, ship it.
+
+As far as we can tell (checked 2026-10-15), the Obsidian page is also the most complete of the four:
+
+| | obsid.net | Ibraheem-Khalil | SvenAkk | link-bridge |
+|---|---|---|---|---|
+| Runs on your own domain | Yes (self-host the Worker), or use obsid.net | Yes | Yes (GitHub Pages) | Yes, or on your own Mac with no domain at all |
+| Note name never sent to the server | No (query string) | No (query string) | Yes (fragment) | Yes (fragment) |
+| Any vault | Yes | Yes | No (vault fixed in the code) | Yes |
+| Built-in `obsidian://open` | Yes | Yes | No | Yes |
+| [Advanced URI](https://github.com/Vinzent03/obsidian-advanced-uri) (new tab, heading, block, line) | No | No | Line only | Yes |
+| Only ever opens notes | Yes (fixed parameters) | Yes (fixed parameters) | Yes (fixed parameters) | Yes (explicit allowlist) |
+| Runs no server code | No (Worker reads the query) | Yes | Yes | Yes |
+| Deploy kit | Cloudflare Worker (`wrangler`) | No | GitHub Pages | Homebrew (local), Cloudflare Workers, any static host |
+| Files and folders, vault creation | No | No | No | Yes (`/reveal`, `/vault-setup`) |
+| License | MIT (stated on obsid.net; no LICENSE file in the repo) | None | None | MIT |
+
 ## Tests
 
 ```sh
