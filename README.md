@@ -153,7 +153,9 @@ renaming any of them (today: the Claude Code status line, [sightline](https://gi
 owned by the `statusline-architect` herdr session on John's Macs):
 
 - `GET /healthz` → `200`, body starting `link-bridge` (then a space and the version)
-- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`
+- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`; `/obsidian` accepts any
+  combination of Obsidian's `open` parameters (`vault`, `file`, `path`, plus `paneType`), `vault=` alone
+  included (0.1.5+), or the Advanced URI set when `filepath=` is present, and refuses every other key
 - the short home-relative fragment form (`#notes/Plan.md`, `#/abs/path`) beside `#path=…`
 - the install command a consumer shows when the bridge is not running:
   `brew install johntrandall/tap/link-bridge && brew services start link-bridge && link-bridge install-handler`
