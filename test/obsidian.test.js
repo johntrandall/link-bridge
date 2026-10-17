@@ -47,4 +47,6 @@ test('vault= alone opens the vault (obsidian://open?vault=X)', () => {
   assert.equal(r.vault, 'admin-technical');
   assert.ok(buildObsidianUri('#vault=').error);
   assert.match(buildObsidianUri('#vault=v&openmode=tab').error, /refused: openmode/);
+  assert.match(buildObsidianUri('#vault=v&file=').error, /empty/);
+  assert.match(buildObsidianUri('#vault=v&path=').error, /empty/);
 });

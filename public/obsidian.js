@@ -66,7 +66,8 @@
       return { error: 'This bridge only opens notes. It refused: ' + rejected.join(', ') + '.' };
     }
 
-    target = seen.filepath || seen.file || seen.path || (seen.vault ? '(vault)' : '');
+    var namesNote = has('filepath') || has('file') || has('path');
+    target = namesNote ? (seen.filepath || seen.file || seen.path) : (seen.vault ? '(vault)' : '');
     if (!target) return { error: 'The link names no note or vault (filepath=, file=, path= or vault= is empty).' };
     var query = params.map(function (p) {
       return encodeURIComponent(p[0]) + '=' + encodeURIComponent(p[1]);
