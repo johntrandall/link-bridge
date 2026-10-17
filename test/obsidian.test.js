@@ -28,7 +28,6 @@ test('command and write parameters are refused', () => {
 
 test('no note, empty, repeated or broken input is refused', () => {
   assert.ok(buildObsidianUri('').error);
-  assert.ok(buildObsidianUri('#vault=v').error);
   assert.ok(buildObsidianUri('#vault=v&filepath=a&filepath=b').error);
   assert.ok(buildObsidianUri('#vault=v&filepath=%E0%A4%A').error);
   assert.ok(buildObsidianUri('#filepath=').error);
@@ -40,4 +39,12 @@ test('no note, empty, repeated or broken input is refused', () => {
 test('result is always an obsidian:// URI with a fixed action', () => {
   const r = buildObsidianUri('#filepath=javascript%3Aalert(1)');
   assert.ok(r.uri.startsWith('obsidian://advanced-uri?'));
+});
+
+test('vault= alone opens the vault (obsidian://open?vault=X)', () => {
+  const r = buildObsidianUri('#vault=admin-technical');
+  assert.equal(r.uri, 'obsidian://open?vault=admin-technical');
+  assert.equal(r.vault, 'admin-technical');
+  assert.ok(buildObsidianUri('#vault=').error);
+  assert.match(buildObsidianUri('#vault=v&openmode=tab').error, /refused: openmode/);
 });

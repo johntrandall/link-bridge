@@ -31,7 +31,7 @@ link-bridge url --vault-setup ~/dev/project
 
 | Route | Forwards to | What happens |
 |---|---|---|
-| `/obsidian#vault=…&filepath=…&openmode=tab` | `obsidian://advanced-uri?…` or `obsidian://open?…` | opens a note in Obsidian ("open a note" parameters only) |
+| `/obsidian#vault=…&filepath=…&openmode=tab` | `obsidian://advanced-uri?…` or `obsidian://open?…` | opens a note in Obsidian ("open a note" parameters only); `#vault=…` alone opens that vault |
 | `/reveal#notes/Plan.md` | `reveal://reveal?path=…` | selects the file or folder in a Finder window; never opens it |
 | `/vault-setup#dev/project` | `obsidian-vault-setup://open?path=…` | opens the Obsidian vault at the folder's git root, or creates it; needs [obsidian-vault-setup](https://github.com/johntrandall/obsidian-vault-setup) and its handler app |
 | `/herdr-jump#<session uuid>` | `herdr-jump://session/<uuid>` | focuses the [herdr](https://herdr.dev) tab holding that Claude Code session (handler: Jump to Session.app, below; inside a herdr pane the [open-links](https://github.com/johntrandall/herdr-open-links) plugin handles the Ctrl+click directly). The page accepts one UUID (`#<uuid>` or `#session=<uuid>`) and nothing else |

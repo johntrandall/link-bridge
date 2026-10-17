@@ -47,10 +47,11 @@
     var action, allowed, target;
     if (has('filepath')) {
       action = 'advanced-uri'; allowed = ADVANCED_URI_KEYS;
-    } else if (has('file') || has('path')) {
+    } else if (has('file') || has('path') || has('vault')) {
+      // vault= alone is valid: obsidian://open?vault=X opens (switches to) that vault.
       action = 'open'; allowed = OPEN_KEYS;
     } else {
-      return { error: 'The link names no note (it needs filepath=, file= or path=).' };
+      return { error: 'The link names no note or vault (it needs filepath=, file=, path= or vault=).' };
     }
 
     var seen = Object.create(null);
@@ -65,8 +66,8 @@
       return { error: 'This bridge only opens notes. It refused: ' + rejected.join(', ') + '.' };
     }
 
-    target = seen.filepath || seen.file || seen.path;
-    if (!target) return { error: 'The link names no note (filepath=, file= or path= is empty).' };
+    target = seen.filepath || seen.file || seen.path || (seen.vault ? '(vault)' : '');
+    if (!target) return { error: 'The link names no note or vault (filepath=, file=, path= or vault= is empty).' };
     var query = params.map(function (p) {
       return encodeURIComponent(p[0]) + '=' + encodeURIComponent(p[1]);
     }).join('&');
@@ -91,7 +92,7 @@
       return;
     }
     status.textContent = 'Opening in Obsidian…';
-    where.textContent = (result.vault ? result.vault + ' · ' : '') + result.target;
+    where.textContent = result.target === '(vault)' ? result.vault : (result.vault ? result.vault + ' · ' : '') + result.target;
     button.href = result.uri;
     button.hidden = false;
     root.location.href = result.uri;
