@@ -9,7 +9,9 @@
     link-bridge doctor                                    is the server up, is the handler registered
 
 GET /healthz answers "link-bridge <version>" (directly and through the front door), so a status
-line or script can tell the bridge from anything else on the port.
+line or script can tell the bridge from anything else on the port. POST /act/herdr-jump
+{"session": uuid} and POST /act/reveal {"path": p} (header X-Link-Bridge: 1) perform those
+actions on this Mac for a browser that is not on it (iPad via the tailnet).
 
 The pages turn an https/http link into an app link (obsidian://, reveal://, obsidian-vault-setup://,
 herdr-jump://) for places that only
@@ -22,13 +24,15 @@ LINK on a phone keypad; pick another with --port or LINK_BRIDGE_PORT if it clash
 """
 import argparse
 import http.server
+import json
 import os
+import re
 import socketserver
 import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -44,7 +48,7 @@ HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; "
-                               "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+                               "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     "Cache-Control": "no-cache",
 }
 # Routes without an extension serve the matching page, like Cloudflare's drop-trailing-slash.
@@ -86,8 +90,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_error(404)
         return None
 
+    # "Do it on the Mac": actions a page can request when the browser is not on this Mac
+    # (an iPad reading the status line through Moshi, say) and so cannot follow a custom
+    # scheme. Same gates as the handler apps: herdr_jump.py for a session id, reveal_decode.py
+    # for a path; nothing from the request reaches a shell. Reachable only on loopback and,
+    # via Tailscale Serve, the tailnet. The custom request header forces a CORS preflight,
+    # which this server never answers, so a page on another origin cannot trigger an action.
+    ACTIONS = {"/act/herdr-jump": "herdr-jump", "/act/reveal": "reveal"}
+
     def do_POST(self):
-        self.send_error(405)
+        route = urllib.parse.urlsplit(self.path).path.rstrip("/")
+        if route not in self.ACTIONS:
+            self.send_error(405)
+            return
+        if self.headers.get("X-Link-Bridge") != "1":
+            self._json(403, {"ok": False, "error": "missing X-Link-Bridge header"})
+            return
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, TypeError):
+            self._json(400, {"ok": False, "error": "body must be JSON"})
+            return
+        code, result = run_action(self.ACTIONS[route], body)
+        self._json(code, result)
+
+    def _json(self, code, obj):
+        data = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def log_message(self, fmt, *args):
         # The fragment never arrives, so this is only method, path and status.
@@ -97,6 +131,37 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def run_action(kind, body):
+    """Perform a page-requested action on this Mac through the same gates as the handler apps."""
+    if kind == "herdr-jump":
+        session = str(body.get("session", "")).lower()
+        if not UUID_RE.fullmatch(session):
+            return 400, {"ok": False, "error": "session must be one uuid"}
+        script = os.path.join(HANDLER_DIR, "herdr_jump.py")
+        r = subprocess.run([sys.executable, "-I", script, f"herdr-jump://session/{session}"],
+                           capture_output=True, text=True, timeout=30,
+                           env={**os.environ, "HERDR_BIN_PATH": os.environ.get("HERDR_BIN_PATH", "/opt/homebrew/bin/herdr")})
+        if r.returncode == 0:
+            return 200, {"ok": True, "action": "herdr-jump", "session": session}
+        return (404 if r.returncode == 1 else 400), {"ok": False, "error": "session not live" if r.returncode == 1 else "refused"}
+    if kind == "reveal":
+        path = str(body.get("path", ""))
+        if not path or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):
+            return 400, {"ok": False, "error": "path required"}
+        script = os.path.join(HANDLER_DIR, "reveal_decode.py")
+        url = "reveal://reveal?path=" + urllib.parse.quote(path, safe="")
+        r = subprocess.run([sys.executable, "-I", script, url], capture_output=True, text=True, timeout=10)
+        real = r.stdout.strip()
+        if r.returncode != 0 or not real:
+            return 404, {"ok": False, "error": "path refused or missing"}
+        subprocess.run(["/usr/bin/open", "-R", real], capture_output=True, timeout=10)
+        return 200, {"ok": True, "action": "reveal", "path": real}
+    return 400, {"ok": False, "error": "unknown action"}
 
 
 def cmd_serve(args):

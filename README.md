@@ -146,6 +146,23 @@ apps on the Mac that opens the link, and a phone has no Finder.
 Both can run at once: local links for what you read on the Mac, the public host for what you read
 elsewhere.
 
+## From a phone or tablet (Moshi, a remote browser)
+
+Serve the bridge over your tailnet as well as loopback (the policy pattern: upstream stays on
+`127.0.0.1`, Tailscale Serve fronts it with HTTPS):
+
+```sh
+tailscale serve --bg --https=5465 http://127.0.0.1:5465   # https://<mac>.<tailnet>.ts.net:5465
+```
+
+Then `https://<mac>.<tailnet>.ts.net:5465/obsidian#vault=Notes&file=Plan` opens the note in
+Obsidian on the device that opened the link (an iPad, if that vault is on it), and `/reveal` and
+`/herdr-jump` show an **On the Mac** button instead of trying a scheme the device cannot handle:
+the page POSTs `/act/reveal {"path"}` or `/act/herdr-jump {"session"}` (header `X-Link-Bridge: 1`)
+and the bridge performs the action on the Mac through the same gates as the handler apps. The
+header makes any cross-origin attempt a CORS preflight the server never answers. A terminal app
+that cannot tap links (Moshi today) still needs the URL copied into a browser.
+
 ## Interface stability
 
 Other tools depend on these; treat them as a contract and tell the consumers before changing or
@@ -153,7 +170,8 @@ renaming any of them (today: the Claude Code status line, [sightline](https://gi
 owned by the `statusline-architect` herdr session on John's Macs):
 
 - `GET /healthz` → `200`, body starting `link-bridge` (then a space and the version)
-- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`; `/obsidian` accepts any
+- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`, and the actions `POST /act/reveal`,
+  `POST /act/herdr-jump` (0.1.7+); `/obsidian` accepts any
   combination of Obsidian's `open` parameters (`vault`, `file`, `path`, plus `paneType`), `vault=` alone
   included (0.1.5+), or the Advanced URI set when `filepath=` is present, and refuses every other key
 - the short home-relative fragment form (`#notes/Plan.md`, `#/abs/path`) beside `#path=…`

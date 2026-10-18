@@ -51,10 +51,17 @@
       button.hidden = true;
       return;
     }
-    status.textContent = 'Jumping to the session in herdr…';
     where.textContent = result.target;
     button.href = result.uri;
     button.hidden = false;
+    var om = root.LinkBridgeOnMac;
+    var remote = om && om.isRemoteBrowser();
+    if (om) om.wireOnMac('herdr-jump', { session: result.session || (result.uri.split('/session/')[1] || '').replace(/\/$/, '') }, 'Jump on the Mac');
+    if (remote) {
+      status.textContent = 'This browser is not on the Mac; ask the Mac to focus the tab:';
+      return;
+    }
+    status.textContent = 'Jumping to the session in herdr…';
     root.location.href = result.uri;
   }
 
