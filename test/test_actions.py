@@ -57,6 +57,13 @@ class Actions(unittest.TestCase):
         self.assertEqual(post("/act/herdr-jump", {"session": "../etc"})[0], 400)
         self.assertEqual(post("/act/herdr-jump", {"session": "00000000-0000-4000-8000-000000000000"})[0], 404)
 
+    def test_workspace_400_and_missing_404(self):
+        self.assertEqual(post("/act/herdr-workspace", {})[0], 400)
+        self.assertEqual(post("/act/herdr-workspace", {"workspace": "../etc"})[0], 400)
+        self.assertEqual(post("/act/herdr-workspace", {"label": "a\nb"})[0], 400)
+        self.assertEqual(post("/act/herdr-workspace", {"workspace": "wZZZZZZZ"})[0], 404)
+        self.assertEqual(post("/act/herdr-workspace", {"label": "no such workspace label 7f3a"})[0], 404)
+
     def test_reveal_refusals(self):
         self.assertEqual(post("/act/reveal", {"path": ""})[0], 400)
         self.assertEqual(post("/act/reveal", {"path": "/definitely/not/here"})[0], 404)

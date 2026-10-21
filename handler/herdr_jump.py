@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Resolve a herdr-jump://session/<claude-session-uuid> link and focus that session's herdr tab.
+"""Resolve a herdr-jump:// link: focus a Claude session's herdr tab, or focus a herdr workspace.
+
+    herdr-jump://session/<claude-session-uuid>      -> `herdr tab focus <tab>` (the session's pane)
+    herdr-jump://workspace/<workspace id>           -> `herdr workspace focus <id>`   (0.1.8)
+    herdr-jump://workspace/label/<url-encoded label> -> the workspace whose tab-bar label matches,
+                                                        lifecycle glyphs in front ignored, case-insensitive
 
 Run by the "Jump to Session" applet (the Launch Services handler for the herdr-jump scheme), so
 a link clicked in a browser, for example the /herdr-jump page of this bridge opened from a
@@ -17,8 +22,9 @@ Resolution:
 After a focus the terminal app hosting herdr is brought to the front (default Terminal; set
 LINK_BRIDGE_TERMINAL_APP for iTerm2, Ghostty, ...), because the click came from a browser.
 
-The link is untrusted input: the uuid must match strictly, and nothing from the URL ever reaches
-a shell. Log: ~/Library/Logs/jump-to-session.log
+The link is untrusted input: the uuid and the workspace id must match strictly, a label is only ever
+compared to `herdr workspace list` output, and nothing from the URL ever reaches a shell.
+Log: ~/Library/Logs/jump-to-session.log
 """
 import datetime
 import glob
@@ -27,9 +33,14 @@ import os
 import re
 import subprocess
 import sys
+import urllib.parse
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 LINK = re.compile(r"herdr-jump://session/([0-9a-fA-F-]{36})/?")
+WORKSPACE_ID = re.compile(r"w[A-Za-z0-9]{1,8}")
+WORKSPACE_LINK = re.compile(r"herdr-jump://workspace/(w[A-Za-z0-9]{1,8})/?")
+WORKSPACE_LABEL_LINK = re.compile(r"herdr-jump://workspace/label/([^/?#]{1,400})/?")
+LABEL_MAX = 80
 HERDR = os.environ.get("HERDR_BIN_PATH") or "/opt/homebrew/bin/herdr"
 SESSIONS = os.path.expanduser("~/.claude/sessions")
 LOG = os.path.expanduser("~/Library/Logs/jump-to-session.log")
@@ -68,6 +79,59 @@ def parse_session_url(url):
     return uuid if UUID.fullmatch(uuid) else None
 
 
+def parse_workspace_url(url):
+    """("id", <workspace id>) or ("label", <label text>) for a herdr-jump://workspace/… link, else None."""
+    m = WORKSPACE_LINK.fullmatch(url or "")
+    if m:
+        return ("id", m.group(1))
+    m = WORKSPACE_LABEL_LINK.fullmatch(url or "")
+    if not m:
+        return None
+    try:
+        label = urllib.parse.unquote(m.group(1), errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if not label or len(label) > LABEL_MAX or any(ord(c) < 0x20 or ord(c) == 0x7F for c in label):
+        return None
+    return ("label", label)
+
+
+def label_key(label):
+    """A workspace label with its leading lifecycle/category glyph tokens dropped, case-folded:
+    "🌙 📦 s-svc link-bridge" -> "s-svc link-bridge". A token counts as a glyph when it has no
+    ASCII letter or digit, so "? 🔁 a-on readme" also reduces to "a-on readme"."""
+    words = str(label or "").split()
+    while words and not re.search(r"[A-Za-z0-9]", words[0]):
+        words.pop(0)
+    return " ".join(words).casefold()
+
+
+def label_matches(label, wanted):
+    key = label_key(wanted)
+    return label == wanted or (bool(key) and label_key(label) == key)
+
+
+def workspaces():
+    data = json.loads(herdr("workspace", "list"))
+    return data.get("result", data).get("workspaces", [])
+
+
+def find_workspace(kind, value):
+    """The workspace id for an id or label, or None. An exact label wins over a glyph-stripped match."""
+    rows = workspaces()
+    if kind == "id":
+        return next((w["workspace_id"] for w in rows if w.get("workspace_id") == value), None)
+    exact = [w for w in rows if w.get("label") == value]
+    loose = exact or [w for w in rows if label_matches(w.get("label", ""), value)]
+    return loose[0]["workspace_id"] if loose else None
+
+
+def focus_workspace(workspace_id):
+    herdr("workspace", "focus", workspace_id)
+    if subprocess.run(["/usr/bin/pgrep", "-xq", TERMINAL_APP], capture_output=True).returncode == 0:
+        subprocess.run(["/usr/bin/open", "-a", TERMINAL_APP], capture_output=True)
+
+
 def session_records():
     records = {}
     for path in glob.glob(os.path.join(SESSIONS, "*.json")):
@@ -96,6 +160,17 @@ def focus(tab_id):
 
 def main(argv):
     url = argv[1] if len(argv) > 1 else os.environ.get("HERDR_PLUGIN_CLICKED_URL", "")
+    wanted_ws = parse_workspace_url(url)
+    if wanted_ws:
+        kind, value = wanted_ws
+        workspace_id = find_workspace(kind, value)
+        if not workspace_id:
+            notify("Workspace gone", f"no herdr workspace with {kind} {value[:40]!r}")
+            log(f"workspace not found {kind}={value!r}")
+            return 1
+        focus_workspace(workspace_id)
+        log(f"focused workspace {workspace_id} for {kind}={value!r}")
+        return 0
     uuid = parse_session_url(url)
     if not uuid:
         log(f"refused {url!r}")

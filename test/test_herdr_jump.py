@@ -24,5 +24,40 @@ class ParseSessionUrl(unittest.TestCase):
             self.assertIsNone(hj.parse_session_url(bad), bad)
 
 
+class ParseWorkspaceUrl(unittest.TestCase):
+    def test_id_form(self):
+        self.assertEqual(hj.parse_workspace_url("herdr-jump://workspace/wBK"), ("id", "wBK"))
+        self.assertEqual(hj.parse_workspace_url("herdr-jump://workspace/w7P/"), ("id", "w7P"))
+
+    def test_label_form_decodes(self):
+        self.assertEqual(hj.parse_workspace_url("herdr-jump://workspace/label/s-svc%20link-bridge"),
+                         ("label", "s-svc link-bridge"))
+        self.assertEqual(hj.parse_workspace_url("herdr-jump://workspace/label/%F0%9F%8C%99%20x"), ("label", "🌙 x"))
+
+    def test_refuses_everything_else(self):
+        for bad in ("", "herdr-jump://workspace/", "herdr-jump://workspace/BK", "herdr-jump://workspace/w",
+                    "herdr-jump://workspace/w123456789", "herdr-jump://workspace/wBK?x=1",
+                    "herdr-jump://workspace/wBK\n", "herdr-jump://workspace/label/", "herdr-jump://workspace/label/a%0Ab",
+                    "herdr-jump://workspace/label/" + "x" * 81, "herdr-jump://workspace/label/%ff",
+                    "herdr-jump://workspace/label/a/b", f"herdr-jump://workspace/{U}", "reveal://workspace/wBK"):
+            self.assertIsNone(hj.parse_workspace_url(bad), bad)
+
+    def test_session_links_are_not_workspace_links(self):
+        self.assertIsNone(hj.parse_workspace_url(f"herdr-jump://session/{U}"))
+        self.assertIsNone(hj.parse_session_url("herdr-jump://workspace/wBK"))
+
+
+class LabelMatching(unittest.TestCase):
+    def test_glyphs_and_case_are_ignored(self):
+        self.assertEqual(hj.label_key("🌙 📦 s-svc link-bridge"), "s-svc link-bridge")
+        self.assertEqual(hj.label_key("? 🔁 a-on readme"), "a-on readme")
+        self.assertEqual(hj.label_key("↪ JOB automation → ho2"), "job automation → ho2")
+        self.assertTrue(hj.label_matches("🌙 📦 s-svc link-bridge", "S-SVC Link-Bridge"))
+        self.assertTrue(hj.label_matches("🌙 📦 s-svc link-bridge", "🌙 📦 s-svc link-bridge"))
+        self.assertFalse(hj.label_matches("🌙 📦 s-svc link-bridge", "link-bridge"))
+        self.assertEqual(hj.label_key("🌙"), "")
+        self.assertFalse(hj.label_matches("🌙", "📦"))
+
+
 if __name__ == "__main__":
     unittest.main()

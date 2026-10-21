@@ -10,8 +10,9 @@
 
 GET /healthz answers "link-bridge <version>" (directly and through the front door), so a status
 line or script can tell the bridge from anything else on the port. POST /act/herdr-jump
-{"session": uuid} and POST /act/reveal {"path": p} (header X-Link-Bridge: 1) perform those
-actions on this Mac for a browser that is not on it (iPad via the tailnet).
+{"session": uuid}, POST /act/herdr-workspace {"workspace": id} or {"label": text} and
+POST /act/reveal {"path": p} (header X-Link-Bridge: 1) perform those actions on this Mac for a
+browser that is not on it (iPad via the tailnet).
 
 The pages turn an https/http link into an app link (obsidian://, reveal://, obsidian-vault-setup://,
 herdr-jump://) for places that only
@@ -32,7 +33,7 @@ import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -53,7 +54,8 @@ HEADERS = {
 }
 # Routes without an extension serve the matching page, like Cloudflare's drop-trailing-slash.
 ROUTES = {"/": "index.html", "/obsidian": "obsidian.html", "/reveal": "reveal.html",
-          "/vault-setup": "vault-setup.html", "/herdr-jump": "herdr-jump.html"}
+          "/vault-setup": "vault-setup.html", "/herdr-jump": "herdr-jump.html",
+          "/herdr-workspace": "herdr-workspace.html"}
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -96,7 +98,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # for a path; nothing from the request reaches a shell. Reachable only on loopback and,
     # via Tailscale Serve, the tailnet. The custom request header forces a CORS preflight,
     # which this server never answers, so a page on another origin cannot trigger an action.
-    ACTIONS = {"/act/herdr-jump": "herdr-jump", "/act/reveal": "reveal"}
+    ACTIONS = {"/act/herdr-jump": "herdr-jump", "/act/herdr-workspace": "herdr-workspace",
+               "/act/reveal": "reveal"}
 
     def do_POST(self):
         route = urllib.parse.urlsplit(self.path).path.rstrip("/")
@@ -149,6 +152,23 @@ def run_action(kind, body):
         if r.returncode == 0:
             return 200, {"ok": True, "action": "herdr-jump", "session": session}
         return (404 if r.returncode == 1 else 400), {"ok": False, "error": "session not live" if r.returncode == 1 else "refused"}
+    if kind == "herdr-workspace":
+        # One of {"workspace": "<id>"} or {"label": "<tab-bar label>"}; the handler's own parser is
+        # the gate (ids wXX, labels <= 80 chars without control characters), nothing reaches a shell.
+        workspace = str(body.get("workspace", ""))
+        label = str(body.get("label", ""))
+        if workspace:
+            url = f"herdr-jump://workspace/{workspace}"
+        elif label:
+            url = "herdr-jump://workspace/label/" + urllib.parse.quote(label, safe="")
+        else:
+            return 400, {"ok": False, "error": "workspace or label required"}
+        script = os.path.join(HANDLER_DIR, "herdr_jump.py")
+        r = subprocess.run([sys.executable, "-I", script, url], capture_output=True, text=True, timeout=30,
+                           env={**os.environ, "HERDR_BIN_PATH": os.environ.get("HERDR_BIN_PATH", "/opt/homebrew/bin/herdr")})
+        if r.returncode == 0:
+            return 200, {"ok": True, "action": "herdr-workspace", "workspace": workspace or None, "label": label or None}
+        return (404 if r.returncode == 1 else 400), {"ok": False, "error": "workspace not found" if r.returncode == 1 else "refused"}
     if kind == "reveal":
         path = str(body.get("path", ""))
         if not path or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):

@@ -35,6 +35,7 @@ link-bridge url --vault-setup ~/dev/project
 | `/reveal#notes/Plan.md` | `reveal://reveal?path=…` | selects the file or folder in a Finder window; never opens it |
 | `/vault-setup#dev/project` | `obsidian-vault-setup://open?path=…` | opens the Obsidian vault at the folder's git root, or creates it; needs [obsidian-vault-setup](https://github.com/johntrandall/obsidian-vault-setup) and its handler app |
 | `/herdr-jump#<session uuid>` | `herdr-jump://session/<uuid>` | focuses the [herdr](https://herdr.dev) tab holding that Claude Code session (handler: Jump to Session.app, below; inside a herdr pane the [open-links](https://github.com/johntrandall/herdr-open-links) plugin handles the Ctrl+click directly). The page accepts one UUID (`#<uuid>` or `#session=<uuid>`) and nothing else |
+| `/herdr-workspace#<workspace id>` | `herdr-jump://workspace/<id>` | focuses one herdr **workspace** (0.1.8; same handler app and plugin as `/herdr-jump`; `herdr workspace focus`). Forms: `#<id>` or `#id=<id>` (a herdr id such as `wBK`), or `#label=<url-encoded tab-bar label>`, which the handler matches ignoring the lifecycle glyphs in front and case, so it survives a herdr restart that renumbers ids |
 
 `/reveal` and `/vault-setup` take the path two ways. The **short form** is the bare fragment:
 `#notes/Plan.md` is relative to your home folder, `#/Volumes/x/y` is absolute, and only `/` is left
@@ -63,6 +64,9 @@ file is; it cannot run it. You double-click if you want it opened.
 **Jump to Session.app** (`herdr-jump://`): `handler/herdr_jump.py` accepts exactly one Claude Code
 session UUID, asks `herdr agent list` which live pane holds it, runs `herdr tab focus` (which also
 switches workspace) and brings the terminal forward (`LINK_BRIDGE_TERMINAL_APP`, default Terminal).
+Since 0.1.8 the same app also takes `herdr-jump://workspace/<id>` and `herdr-jump://workspace/label/<label>`
+(from `/herdr-workspace`), looks the workspace up in `herdr workspace list` (an exact label first, then the
+label with its leading glyph tokens dropped, case-insensitively) and runs `herdr workspace focus <id>`.
 If the id is no longer live but its `~/.claude/sessions` record carries a user-given name (a `/clear`
 keeps the name and mints a new id), the live pane with that name is focused instead; otherwise a herdr
 notification says "Session gone" and nothing is focused. Nothing from the link ever reaches a shell.
@@ -71,6 +75,8 @@ notification says "Session gone" and nothing is focused. Nothing from the link e
 link-bridge install-handler
 open 'reveal://reveal?path=%2FUsers%2Fme'                    # a Finder window with your home folder selected
 open 'herdr-jump://session/<claude session uuid>'             # that session's herdr tab comes to the front
+open 'herdr-jump://workspace/wBK'                               # that herdr workspace comes to the front (0.1.8)
+open 'herdr-jump://workspace/label/s-svc%20link-bridge'          # the same, by tab-bar label (glyphs and case ignored)
 ```
 
 Chrome asks once per site and scheme whether it may open the app; tick "Always allow" for your
@@ -158,7 +164,7 @@ tailscale serve --bg --https=5465 http://127.0.0.1:5465   # https://<mac>.<tailn
 Then `https://<mac>.<tailnet>.ts.net:5465/obsidian#vault=Notes&file=Plan` opens the note in
 Obsidian on the device that opened the link (an iPad, if that vault is on it), and `/reveal` and
 `/herdr-jump` show an **On the Mac** button instead of trying a scheme the device cannot handle:
-the page POSTs `/act/reveal {"path"}` or `/act/herdr-jump {"session"}` (header `X-Link-Bridge: 1`)
+the page POSTs `/act/reveal {"path"}`, `/act/herdr-jump {"session"}` or `/act/herdr-workspace {"workspace"}` / `{"label"}` (header `X-Link-Bridge: 1`)
 and the bridge performs the action on the Mac through the same gates as the handler apps. The
 header makes any cross-origin attempt a CORS preflight the server never answers. A terminal app
 that cannot tap links (Moshi today) still needs the URL copied into a browser.
@@ -170,8 +176,8 @@ renaming any of them (today: the Claude Code status line, [sightline](https://gi
 owned by the `statusline-architect` herdr session on John's Macs):
 
 - `GET /healthz` → `200`, body starting `link-bridge` (then a space and the version)
-- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`, and the actions `POST /act/reveal`,
-  `POST /act/herdr-jump` (0.1.7+); `/obsidian` accepts any
+- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`, `/herdr-workspace#…` (0.1.8+), and the
+  actions `POST /act/reveal`, `POST /act/herdr-jump` (0.1.7+), `POST /act/herdr-workspace` (0.1.8+); `/obsidian` accepts any
   combination of Obsidian's `open` parameters (`vault`, `file`, `path`, plus `paneType`), `vault=` alone
   included (0.1.5+), or the Advanced URI set when `filepath=` is present, and refuses every other key
 - the short home-relative fragment form (`#notes/Plan.md`, `#/abs/path`) beside `#path=…`
@@ -245,7 +251,7 @@ As far as we can tell (checked 2026-10-15), the Obsidian page is also the most c
 ## Tests
 
 ```sh
-node --test test/                                         # page logic (obsidian, reveal, vault-setup, herdr-jump)
+node --test test/                                         # page logic (obsidian, reveal, vault-setup, herdr-jump, herdr-workspace)
 python3 -I -m unittest discover -s test -p 'test_*.py'    # handler gates (reveal_decode, herdr_jump)
 ```
 
