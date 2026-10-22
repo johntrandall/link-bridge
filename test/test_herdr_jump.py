@@ -59,5 +59,46 @@ class LabelMatching(unittest.TestCase):
         self.assertFalse(hj.label_matches("🌙", "📦"))
 
 
+class ChainOwner(unittest.TestCase):
+    """pick_owner over herdr-lifecycle siblings output: who holds the seat of an exited session."""
+    SESSIONS = [
+        {"claude_name": "statusline-links-ho3", "session_id": "39b3a7c4-0000-4000-8000-000000000003"},
+        {"claude_name": "resume-steward-ho2", "session_id": "aaaaaaaa-0000-4000-8000-000000000002"},
+        {"claude_name": "resume-steward", "session_id": "aaaaaaaa-0000-4000-8000-000000000001"},
+        {"claude_name": "lonely", "session_id": "bbbbbbbb-0000-4000-8000-000000000001"},
+    ]
+    CHAINS = {"statusline-links": ["statusline-links-ho3"], "resume-steward": ["resume-steward", "resume-steward-ho2"]}
+
+    def test_names(self):
+        self.assertEqual(hj.chain_base("x-ho12"), "x")
+        self.assertEqual(hj.chain_base("x"), "x")
+        self.assertEqual(hj.ho_number("x-ho12"), 12)
+        self.assertEqual(hj.ho_number("x"), 0)
+        self.assertEqual(hj.chain_base("x-ho2-ho3"), "x-ho2")
+
+    def test_exited_origin_goes_to_the_highest_live_successor(self):
+        sid, owner, _ = hj.pick_owner("statusline-links-ho2", self.CHAINS, self.SESSIONS)
+        self.assertEqual((sid[-1], owner), ("3", "statusline-links-ho3"))
+        sid, owner, _ = hj.pick_owner("statusline-links", self.CHAINS, self.SESSIONS)
+        self.assertEqual(owner, "statusline-links-ho3")
+
+    def test_live_origin_still_yields_the_owner_not_the_historian(self):
+        sid, owner, reason = hj.pick_owner("resume-steward", self.CHAINS, self.SESSIONS)
+        self.assertEqual(owner, "resume-steward-ho2")
+        self.assertIn("owns the seat", reason)
+
+    def test_same_name_live_is_the_clear_case(self):
+        sid, owner, reason = hj.pick_owner("lonely", {}, self.SESSIONS)
+        self.assertEqual((owner, reason), ("lonely", "same name is live"))
+
+    def test_chain_members_found_without_a_chains_entry(self):
+        sid, owner, _ = hj.pick_owner("resume-steward-ho1", None, self.SESSIONS)
+        self.assertEqual(owner, "resume-steward-ho2")
+
+    def test_nothing_live(self):
+        self.assertIsNone(hj.pick_owner("ghost-ho4", {"ghost": []}, self.SESSIONS))
+        self.assertIsNone(hj.pick_owner("ghost", None, []))
+
+
 if __name__ == "__main__":
     unittest.main()

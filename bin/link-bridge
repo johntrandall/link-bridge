@@ -33,7 +33,7 @@ import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 

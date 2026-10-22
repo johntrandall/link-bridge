@@ -14,10 +14,17 @@ johntrandall.open-links herdr plugin for Ctrl+click inside a pane; keep the two 
 Resolution:
 1. `herdr agent list` names every live agent pane's Claude session id and tab id. A match is
    focused with `herdr tab focus <tab_id>`, which also switches the focused workspace.
-2. Not live: a /clear keeps a user-given session name but mints a new id, so the old id is
+2. Not live (0.1.9, asked by watchbill for its decision cards): the seat's current owner. The
+   id's Claude name comes from herdr-lifecycle's role file (~/.local/state/herdr-lifecycle/
+   roles/<sid>.json), its handoff ledger, or ~/.claude/sessions; `herdr-lifecycle siblings
+   --all --json` then names the live members of that name's handoff chain (<base>, <base>-ho2,
+   ...), and the highest -hoN that is live is focused, else any live member (the historian).
+3. Still nothing: a /clear keeps a user-given session name but mints a new id, so the old id is
    looked up in ~/.claude/sessions/*.json; when that record has nameSource "user", the live
    pane whose own record carries the same name is focused instead.
-3. Otherwise nothing is focused; a herdr notification says the session is gone.
+4. Otherwise nothing is focused; a herdr notification says the session is gone.
+
+`herdr_jump.py --resolve <url>` prints what would be focused and why, without focusing.
 
 After a focus the terminal app hosting herdr is brought to the front (default Terminal; set
 LINK_BRIDGE_TERMINAL_APP for iTerm2, Ghostty, ...), because the click came from a browser.
@@ -31,6 +38,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -43,6 +51,9 @@ WORKSPACE_LABEL_LINK = re.compile(r"herdr-jump://workspace/label/([^/?#]{1,400})
 LABEL_MAX = 80
 HERDR = os.environ.get("HERDR_BIN_PATH") or "/opt/homebrew/bin/herdr"
 SESSIONS = os.path.expanduser("~/.claude/sessions")
+LIFECYCLE_STATE = os.environ.get("HERDR_LIFECYCLE_LEDGER_DIR") or os.path.expanduser("~/.local/state/herdr-lifecycle")
+HERDR_LIFECYCLE = os.environ.get("HERDR_LIFECYCLE_BIN") or shutil.which("herdr-lifecycle") or os.path.expanduser("~/.local/bin/herdr-lifecycle")
+HO_SUFFIX = re.compile(r"-ho(\d+)$")
 LOG = os.path.expanduser("~/Library/Logs/jump-to-session.log")
 TERMINAL_APP = os.environ.get("LINK_BRIDGE_TERMINAL_APP", "Terminal")
 
@@ -145,6 +156,81 @@ def session_records():
     return records
 
 
+def chain_base(name):
+    """"x-ho3" -> "x"; "x" -> "x"."""
+    return HO_SUFFIX.sub("", name or "")
+
+
+def ho_number(name):
+    """"x-ho3" -> 3; "x" -> 0 (the origin of a chain)."""
+    m = HO_SUFFIX.search(name or "")
+    return int(m.group(1)) if m else 0
+
+
+def name_for_session(uuid, records=None):
+    """The Claude name of a session id, live or exited: herdr-lifecycle's role file, then its
+    handoff ledger (spawn/adopt rows carry session_id+name, handoff/relieve rows origin and
+    receiver), then the ~/.claude/sessions record. None when nothing names it."""
+    try:
+        with open(os.path.join(LIFECYCLE_STATE, "roles", f"{uuid}.json")) as f:
+            name = json.load(f).get("name")
+        if name:
+            return name
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        with open(os.path.join(LIFECYCLE_STATE, "handoffs.jsonl")) as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get("session_id") == uuid and row.get("name"):
+                    return row["name"]
+                if row.get("origin_sid") == uuid and row.get("origin_name"):
+                    return row["origin_name"]
+                if row.get("receiver_sid") == uuid and row.get("receiver_name"):
+                    return row["receiver_name"]
+    except OSError:
+        pass
+    rec = (records or {}).get(uuid) or {}
+    return rec.get("name") or None
+
+
+def siblings():
+    """{"sessions": [...], "chains": {base: [live member names]}} from herdr-lifecycle, or None."""
+    try:
+        out = subprocess.run([HERDR_LIFECYCLE, "siblings", "--all", "--json"],
+                             capture_output=True, text=True, timeout=15)
+        return json.loads(out.stdout) if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def pick_owner(name, chains, sessions):
+    """(session_id, owner_name, reason) of the live session that now holds `name`'s seat:
+    the highest -hoN of its handoff chain that is live, else any live chain member (the
+    historian), else a live session with the same name (/clear). None when nothing is live.
+    Pure: `chains` and `sessions` are herdr-lifecycle siblings output."""
+    live = {}
+    for row in sessions or []:
+        cname, sid = row.get("claude_name"), row.get("session_id")
+        if cname and sid and (cname not in live or ho_number(cname) > ho_number(live[cname])):
+            live[cname] = sid
+    base = chain_base(name)
+    members = set((chains or {}).get(base) or []) | {base, name}
+    members |= {n for n in live if chain_base(n) == base}
+    ranked = sorted((n for n in members if n in live), key=ho_number, reverse=True)
+    if not ranked:
+        return None
+    owner = ranked[0]
+    if owner == name:
+        return live[owner], owner, "same name is live"
+    if ho_number(owner) > ho_number(name):
+        return live[owner], owner, f"{name} handed off; {owner} owns the seat"
+    return live[owner], owner, f"{name} is gone; {owner} is the live member of its chain"
+
+
 def live_agents():
     data = json.loads(herdr("agent", "list"))
     agents = data.get("result", data).get("agents", [])
@@ -158,12 +244,40 @@ def focus(tab_id):
         subprocess.run(["/usr/bin/open", "-a", TERMINAL_APP], capture_output=True)
 
 
+def resolve_session(uuid, agents, records):
+    """(tab_id, reason) for a session uuid: its own live pane, the current owner of its seat
+    (herdr-lifecycle chain), or a live pane with the same user-given name. None when gone."""
+    tabs = {sid: tab_id for sid, tab_id in agents if sid and tab_id}
+    if uuid in tabs:
+        return tabs[uuid], "live"
+    name = name_for_session(uuid, records)
+    if name:
+        sib = siblings()
+        if sib:
+            owner = pick_owner(name, sib.get("chains"), sib.get("sessions"))
+            if owner and owner[0] in tabs:
+                return tabs[owner[0]], f"via herdr-lifecycle: {owner[2]} ({owner[0][:8]})"
+    wanted = records.get(uuid)
+    if wanted and wanted.get("nameSource") == "user" and wanted.get("name"):
+        for sid, tab_id in agents:
+            rec = records.get(sid)
+            if rec and rec.get("nameSource") == "user" and rec.get("name") == wanted["name"] and tab_id:
+                return tab_id, f"via name {wanted['name']!r} -> {sid[:8]}"
+    return None
+
+
 def main(argv):
+    dry = len(argv) > 1 and argv[1] == "--resolve"
+    if dry:
+        argv = argv[1:]
     url = argv[1] if len(argv) > 1 else os.environ.get("HERDR_PLUGIN_CLICKED_URL", "")
     wanted_ws = parse_workspace_url(url)
     if wanted_ws:
         kind, value = wanted_ws
         workspace_id = find_workspace(kind, value)
+        if dry:
+            print(f"{workspace_id or 'none'} workspace {kind}={value!r}")
+            return 0 if workspace_id else 1
         if not workspace_id:
             notify("Workspace gone", f"no herdr workspace with {kind} {value[:40]!r}")
             log(f"workspace not found {kind}={value!r}")
@@ -176,25 +290,23 @@ def main(argv):
         log(f"refused {url!r}")
         return 3
     agents = live_agents()
-    for sid, tab_id in agents:
-        if sid == uuid and tab_id:
-            focus(tab_id)
-            log(f"focused {tab_id} for {uuid}")
-            return 0
     records = session_records()
-    wanted = records.get(uuid)
-    if wanted and wanted.get("nameSource") == "user" and wanted.get("name"):
-        name = wanted["name"]
-        for sid, tab_id in agents:
-            rec = records.get(sid)
-            if rec and rec.get("nameSource") == "user" and rec.get("name") == name and tab_id:
-                focus(tab_id)
-                log(f"focused {tab_id} for {uuid} via name {name!r} -> {sid}")
-                return 0
-        notify("Session gone", f"{name} ({uuid[:8]}) is not in any live herdr pane")
-    else:
-        notify("Session gone", f"{uuid[:8]} is not in any live herdr pane")
-    log(f"not found {uuid}")
+    found = resolve_session(uuid, agents, records)
+    if found:
+        tab_id, reason = found
+        if dry:
+            print(f"{tab_id} {reason}")
+            return 0
+        focus(tab_id)
+        log(f"focused {tab_id} for {uuid} ({reason})")
+        return 0
+    name = name_for_session(uuid, records)
+    who = f"{name} ({uuid[:8]})" if name else uuid[:8]
+    if dry:
+        print(f"none: {who} is not in any live herdr pane and its seat has no live owner")
+        return 1
+    notify("Session gone", f"{who} is not in any live herdr pane, and its seat has no live owner")
+    log(f"not found {uuid} ({who})")
     return 1
 
 

@@ -67,7 +67,12 @@ switches workspace) and brings the terminal forward (`LINK_BRIDGE_TERMINAL_APP`,
 Since 0.1.8 the same app also takes `herdr-jump://workspace/<id>` and `herdr-jump://workspace/label/<label>`
 (from `/herdr-workspace`), looks the workspace up in `herdr workspace list` (an exact label first, then the
 label with its leading glyph tokens dropped, case-insensitively) and runs `herdr workspace focus <id>`.
-If the id is no longer live but its `~/.claude/sessions` record carries a user-given name (a `/clear`
+Since 0.1.9, when the id is no longer live the app focuses the **current owner of that session's seat**
+(asked by watchbill for its decision cards): the id's Claude name comes from herdr-lifecycle's role file or
+handoff ledger (`~/.local/state/herdr-lifecycle`), `herdr-lifecycle siblings --all --json` names the live
+members of that name's handoff chain (`<base>`, `<base>-ho2`, …), and the highest live `-hoN` is focused, else
+any live member (the historian). `handler/herdr_jump.py --resolve <url>` prints what would be focused and why
+without focusing. If the id is no longer live but its `~/.claude/sessions` record carries a user-given name (a `/clear`
 keeps the name and mints a new id), the live pane with that name is focused instead; otherwise a herdr
 notification says "Session gone" and nothing is focused. Nothing from the link ever reaches a shell.
 
@@ -177,7 +182,7 @@ owned by the `statusline-architect` herdr session on John's Macs):
 
 - `GET /healthz` → `200`, body starting `link-bridge` (then a space and the version)
 - the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`, `/herdr-workspace#…` (0.1.8+), and the
-  actions `POST /act/reveal`, `POST /act/herdr-jump` (0.1.7+), `POST /act/herdr-workspace` (0.1.8+); `/obsidian` accepts any
+  actions `POST /act/reveal`, `POST /act/herdr-jump` (0.1.7+), `POST /act/herdr-workspace` (0.1.8+); `/herdr-jump` resolves an exited session to its seat's live owner (0.1.9+); `/obsidian` accepts any
   combination of Obsidian's `open` parameters (`vault`, `file`, `path`, plus `paneType`), `vault=` alone
   included (0.1.5+), or the Advanced URI set when `filepath=` is present, and refuses every other key
 - the short home-relative fragment form (`#notes/Plan.md`, `#/abs/path`) beside `#path=…`
