@@ -24,6 +24,19 @@ class ParseSessionUrl(unittest.TestCase):
             self.assertIsNone(hj.parse_session_url(bad), bad)
 
 
+class ParseOwnerUrl(unittest.TestCase):
+    def test_accepts_exactly_one_uuid(self):
+        self.assertEqual(hj.parse_owner_url(f"herdr-jump://owner/{U}"), U)
+        self.assertEqual(hj.parse_owner_url(f"herdr-jump://owner/{U.upper()}/"), U)
+
+    def test_refuses_everything_else(self):
+        for bad in ("", "herdr-jump://owner/", f"herdr-jump://owner/{U}?x=1", f"herdr-jump://session/{U}",
+                    "herdr-jump://owner/" + "z" * 36, f"herdr-jump://owner/{U}\n", f"herdr-jump://owner/{U}/../x"):
+            self.assertIsNone(hj.parse_owner_url(bad), bad)
+        self.assertIsNone(hj.parse_session_url(f"herdr-jump://owner/{U}"))
+        self.assertIsNone(hj.parse_workspace_url(f"herdr-jump://owner/{U}"))
+
+
 class ParseWorkspaceUrl(unittest.TestCase):
     def test_id_form(self):
         self.assertEqual(hj.parse_workspace_url("herdr-jump://workspace/wBK"), ("id", "wBK"))

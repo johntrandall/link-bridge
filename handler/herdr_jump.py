@@ -5,6 +5,8 @@
     herdr-jump://workspace/<workspace id>           -> `herdr workspace focus <id>`   (0.1.8)
     herdr-jump://workspace/label/<url-encoded label> -> the workspace whose tab-bar label matches,
                                                         lifecycle glyphs in front ignored, case-insensitive
+    herdr-jump://owner/<claude-session-uuid>        -> the tab of whoever holds that session's SEAT now,
+                                                        per `herdr-lifecycle owner <uuid> --json` (0.1.11)
 
 Run by the "Jump to Session" applet (the Launch Services handler for the herdr-jump scheme), so
 a link clicked in a browser, for example the /herdr-jump page of this bridge opened from a
@@ -45,6 +47,7 @@ import urllib.parse
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 LINK = re.compile(r"herdr-jump://session/([0-9a-fA-F-]{36})/?")
+OWNER_LINK = re.compile(r"herdr-jump://owner/([0-9a-fA-F-]{36})/?")
 WORKSPACE_ID = re.compile(r"w[A-Za-z0-9]{1,8}")
 WORKSPACE_LINK = re.compile(r"herdr-jump://workspace/(w[A-Za-z0-9]{1,8})/?")
 WORKSPACE_LABEL_LINK = re.compile(r"herdr-jump://workspace/label/([^/?#]{1,400})/?")
@@ -88,6 +91,45 @@ def parse_session_url(url):
         return None
     uuid = m.group(1).lower()
     return uuid if UUID.fullmatch(uuid) else None
+
+
+def parse_owner_url(url):
+    """The session uuid in a herdr-jump://owner/<uuid> link, lower-cased, or None."""
+    m = OWNER_LINK.fullmatch(url or "")
+    if not m:
+        return None
+    uuid = m.group(1).lower()
+    return uuid if UUID.fullmatch(uuid) else None
+
+
+def seat_owner(uuid):
+    """`herdr-lifecycle owner <uuid> --json` as a dict (keys session_id, name, how, live, ...),
+    or None when the tool is missing or its output is not JSON. Exit 3 (nobody) still returns
+    the dict, with live false and session_id null."""
+    try:
+        out = subprocess.run([HERDR_LIFECYCLE, "owner", uuid, "--json"],
+                             capture_output=True, text=True, timeout=15)
+        data = json.loads(out.stdout) if out.stdout.strip() else None
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def resolve_owner(uuid, agents, records):
+    """(tab_id, reason) for the live holder of a session's seat, or (None, why)."""
+    info = seat_owner(uuid)
+    if info is None:
+        return None, "herdr-lifecycle owner is not available on this Mac"
+    owner_sid, name, how = info.get("session_id"), info.get("name") or "", info.get("how") or ""
+    if not info.get("live") or not owner_sid:
+        return None, how or f"nobody holds {name or uuid[:8]}'s seat"
+    tabs = {sid: tab_id for sid, tab_id in agents if sid and tab_id}
+    if owner_sid in tabs:
+        return tabs[owner_sid], f"seat owner {name} ({how})"
+    found = resolve_session(owner_sid, agents, records)
+    if found:
+        return found[0], f"seat owner {name} ({how}), via {found[1]}"
+    return None, f"{name} holds the seat ({how}) but has no herdr pane"
 
 
 def parse_workspace_url(url):
@@ -284,6 +326,19 @@ def main(argv):
             return 1
         focus_workspace(workspace_id)
         log(f"focused workspace {workspace_id} for {kind}={value!r}")
+        return 0
+    owner_of = parse_owner_url(url)
+    if owner_of:
+        tab_id, reason = resolve_owner(owner_of, live_agents(), session_records())
+        if dry:
+            print(f"{tab_id or 'none'} {reason}")
+            return 0 if tab_id else 1
+        if not tab_id:
+            notify("Nobody holds that seat", reason[:120])
+            log(f"owner not found for {owner_of}: {reason}")
+            return 1
+        focus(tab_id)
+        log(f"focused {tab_id} for owner of {owner_of} ({reason})")
         return 0
     uuid = parse_session_url(url)
     if not uuid:

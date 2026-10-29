@@ -57,6 +57,18 @@ class Actions(unittest.TestCase):
         self.assertEqual(post("/act/herdr-jump", {"session": "../etc"})[0], 400)
         self.assertEqual(post("/act/herdr-jump", {"session": "00000000-0000-4000-8000-000000000000"})[0], 404)
 
+    def test_owner_400_and_missing_404(self):
+        self.assertEqual(post("/act/herdr-owner", {"session": "../etc"})[0], 400)
+        self.assertEqual(post("/act/herdr-owner", {"session": "00000000-0000-4000-8000-000000000000"})[0], 404)
+
+    def test_routes_lists_the_contract(self):
+        import json as _json, urllib.request as _u
+        with _u.urlopen(f"http://127.0.0.1:{PORT}/routes", timeout=5) as r:
+            d = _json.loads(r.read())
+        self.assertIn("/herdr-owner", d["routes"])
+        self.assertIn("/act/herdr-owner", d["actions"])
+        self.assertTrue(d["version"])
+
     def test_workspace_400_and_missing_404(self):
         self.assertEqual(post("/act/herdr-workspace", {})[0], 400)
         self.assertEqual(post("/act/herdr-workspace", {"workspace": "../etc"})[0], 400)
