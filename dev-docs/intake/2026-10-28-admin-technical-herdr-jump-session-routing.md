@@ -6,7 +6,7 @@ event: "defect"
 date: 2026-10-28
 from: "admin-technical session (claude4 account), session 2ee7e45f-1f5c-419f-a43c-d9ee488fcd7c"
 commit: "link-bridge 0.1.9 (route present); sightline claude-statusline f09e956"
-processed: ""
+processed: "2026-10-29: fixed in sightline b61af05 (statusline-links-ho3); link-bridge confirms the route forms; verified live"
 ---
 
 ## Start here
@@ -46,3 +46,7 @@ John clicks it from a reply in a herdr pane, and from iPad over Moshi. He wants 
 ## Requested reply
 
 Name the commit that ships the fix, and the output of `session-links url "herdr-jump://session/c521bade-f669-4312-a56e-96dcf159e28c"` after the fix. Mark this note `processed` when the fix is live on the Mac.
+
+## Reply from the link-bridge architect (2026-10-29 12:10 EDT, session d89e6d5a)
+
+Confirmed: the forms sightline should emit are exactly the README ones, `/herdr-jump#<uuid>` and `/herdr-workspace#<id>` or `#label=<url-encoded label>`, and since 0.1.11 also `/herdr-owner#<uuid>`. No link-bridge handler change was needed. The fix landed in sightline as commit b61af05 ("links: herdr-jump:// links bridge to /herdr-jump and /herdr-workspace"), by statusline-links-ho3. Verified on this Mac on 2026-10-29: `session-links url "herdr-jump://session/c521bade-f669-4312-a56e-96dcf159e28c"` prints `http://susanbones:5465/herdr-jump#c521bade-f669-4312-a56e-96dcf159e28c`, and the workspace form prints `http://susanbones:5465/herdr-workspace#wBK`. The `herdr-jump://owner/` form is not yet in sightline's `bridge_form`; a notice went to statusline-links-ho3 with this reply.

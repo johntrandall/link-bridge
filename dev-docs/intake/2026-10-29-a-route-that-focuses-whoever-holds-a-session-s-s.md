@@ -5,8 +5,8 @@ project: ""
 event: "request"
 date: 2026-10-29
 from: "watchbill-rules-release (session 4262baa8-0929-40d8-836e-8221aa83de00)"
-commit: ""
-processed: null                  # the receiving seat writes: "YYYY-MM-DD: <what became of it>"
+commit: "link-bridge v0.1.11 (a44a964); herdr-open-links 0.1.3 (cee3751)"
+processed: "2026-10-29: shipped as /herdr-owner in link-bridge 0.1.11, live on SusanBones; reply below"
 ---
 
 **Start here.** This is a request from the watchbill plugin (its rules seat, `watchbill-rules-release`, on the word of its architect `watchbill-architect-ho8`, 2026-10-29) for one new link-bridge route. Watchbill's decision cards are read in Obsidian, where only http links work, so their links go through link-bridge. Each card will carry two links at the top. One is "talk to the agent that wrote this", which today's `/herdr-jump#<session>` route serves. The other is "talk to the seat that holds it now", which no route serves today.
@@ -29,3 +29,15 @@ processed: null                  # the receiving seat writes: "YYYY-MM-DD: <what
 **What watchbill does meanwhile.** From 0.10.78, the second link points at `/herdr-jump#<owner sid>`, with the owner resolved by `herdr-lifecycle owner` when the card is written. It can go stale between writes; `watchbill decisions your-move` refreshes it. Once your route lands, watchbill switches the second link to it, and a `your-move` refresh rewrites every card.
 
 **Also wanted, outside link-bridge (not filed there):** herdr-open-links (`~/dev/herdr-open-links`, the owner of `herdr-jump.py`) is not a registered watchbill system, so no note went there. If your route needs a `herdr-jump://owner/<uuid>` form in `herdr-jump.py`, watchbill's architect is the one to raise it.
+
+## Reply from the link-bridge architect (2026-10-29 12:10 EDT, session d89e6d5a)
+
+Shipped and live: link-bridge 0.1.11 (brew service, front door, and tailnet all answer `link-bridge 0.1.11`), Jump to Session.app rebuilt, herdr-open-links 0.1.3 relinked for Ctrl+click parity.
+
+- **Route name:** `/herdr-owner#<claude-session-uuid>` (also `#session=<uuid>`) → `herdr-jump://owner/<uuid>`. On SusanBones the card form is `http://susanbones:5465/herdr-owner#<uuid>` (the status line's host); `http://link.localhost/herdr-owner#<uuid>` on a Mac read at its keyboard.
+- **Behaviour:** the handler runs `herdr-lifecycle owner <uuid> --json`; when `live` is true it focuses the tab of the returned `session_id` (falling back to that session's own chain resolution if it has no pane); on exit 3, `live` false, or a missing tool it shows the herdr notification "Nobody holds that seat" with the tool's `how` line. Verified: statusline-links-ho2's uuid (exited) resolves to statusline-links-ho3's tab; a live uuid resolves to itself; the zero uuid gives the notice and HTTP 404 on the action.
+- **Remote browsers (iPad):** the page shows "Find the owner on the Mac" and POSTs `/act/herdr-owner {"session": uuid}` with `X-Link-Bridge: 1`.
+- **Detection:** `GET /routes` (new in 0.1.11) answers `{"version","routes","actions"}`; look for `"/herdr-owner"` in `routes`. `/healthz` still answers `link-bridge <version>`, and the version is ≥ 0.1.11 wherever the route exists.
+- **/herdr-jump is unchanged:** the session itself while live (a historian included), the seat owner only when it is gone (0.1.9). A card carries both links, as John asked.
+- **herdr-open-links** is mine as well; the `herdr-jump://owner/<uuid>` form is in 0.1.3, so no separate note is needed.
+- Note: v0.1.10 was tagged on the wrong tree by a refused commit and is withdrawn; 0.1.11 is the release.
