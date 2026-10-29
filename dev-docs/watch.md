@@ -1,6 +1,6 @@
 # watch.md — what the link-bridge architect watches while dormant
 
-Shape: software project (`watchbill systems`: link-bridge, doorbell architect, intake `dev-docs/intake/`).
+Shape: software project (`watchbill systems`: link-bridge, doorbell architect, intake `dev-docs/intake/`). Roster since 2026-10-29: this repo and `~/dev/herdr-open-links` (the herdr plugin, the pane-side entry point; README "What this system owns").
 Architect: the session labelled `🌙 link-bridge …` in herdr (Claude name `link-bridge-architect` from the
 next relaunch; `d89e6d5a` until then).
 
@@ -13,6 +13,7 @@ next relaunch; `d89e6d5a` until then).
 | Tests on main | `node --test test/ && python3 -I -m unittest discover -s test -p 'test_*.py'` | all pass |
 | Handler logs | `tail ~/Library/Logs/{reveal-in-finder,jump-to-session}.log` | no `refused` bursts, no `error` |
 | Consumers | sightline rows resolve `http://link.localhost` (status line shows no "install link-bridge" row) | as expected |
+| Plugin enabled and in step | `herdr plugin list --plugin johntrandall.open-links --json` (enabled, 4 link handlers, `source.kind` local at `~/dev/herdr-open-links`); every `herdr-jump://` form the handler app accepts (`session/`, `workspace/`, `workspace/label/`, `owner/`) has a matching branch in `herdr-open-links/herdr-jump.py`; `git -C ~/dev/herdr-open-links status -sb` clean and pushed | enabled, 4 handlers, forms match, clean |
 
 ## Scheduled probe (John, 2026-10-16: "put yourself in watch mode")
 

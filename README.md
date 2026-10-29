@@ -123,9 +123,20 @@ Other tools depend on these; treat them as a contract and tell the consumers bef
 
 A new page that wants a status-line row goes to the status-line owner, not straight into sightline.
 
+## What this system owns (roster)
+
+Since 2026-10-29 (John: "approved", relayed by infra-account-watch-orch; link-bridge intake `dev-docs/intake/2026-10-29-adopt-herdr-open-links.md`) the link-bridge system owns two repositories, because they are two entry points to one feature and every route change touches both:
+
+| Repository | What it is | Entry point |
+|---|---|---|
+| `~/dev/link-bridge` (this repo; GitHub `johntrandall/link-bridge`, mirror `umbridge` `dev/link-bridge`, tap `johntrandall/tap/link-bridge`) | the pages, the local server, the handler apps (Reveal in Finder, Jump to Session), the front-door kit | a link clicked in a browser, a status line, a card, or any app that opens http(s) |
+| `~/dev/herdr-open-links` (GitHub `johntrandall/herdr-open-links`, mirror `umbridge` `dev/herdr-open-links`; linked into herdr with `herdr plugin link`) | the herdr plugin whose `[[link_handlers]]` make `obsidian://`, `file://`, `reveal://` and `herdr-jump://` links work on Ctrl+click inside a pane | a link clicked inside a herdr pane |
+
+**One route, two entry points, one change.** A new or changed `herdr-jump://` form, scheme, or allowlist lands in both repos in the same release, and the plugin's resolution (`herdr-jump.py`) stays in step with the handler app's (`handler/herdr_jump.py`): same inputs, same resolution order, same refusals. The plugin version is bumped with the bridge's, and `dev-docs/watch.md` probes both. Requests for either go through this system's intake; there is no separate plugin owner.
+
 ## Requesting a change (for agents and people)
 
-Message the link-bridge owner session (the herdr tab labelled `📡 link-bridge watch …`, Claude address `d89e6d5a` until a successor is named) with: the surface that will show the link, the scheme or action wanted, and who clicks it. The owner negotiates scope, may convene a short council of expert subagents for anything that touches the security model, agrees a plan with you in writing, implements it, cuts a release and bumps the tap, and tells the consumers listed under *Interface stability*. New routes follow the existing shape: a fragment that never reaches a server, an explicit allowlist on the page, and a handler app that re-checks on the Mac and can only reveal, open or focus, never run.
+Message the link-bridge architect (the herdr tab labelled `🌙 link-bridge …`, Claude address `d89e6d5a` until a successor is named; or drop a note in `dev-docs/intake/` and ring the doorbell, `watchbill systems`) with: the surface that will show the link, the scheme or action wanted, and who clicks it. The owner negotiates scope, may convene a short council of expert subagents for anything that touches the security model, agrees a plan with you in writing, implements it, cuts a release and bumps the tap, and tells the consumers listed under *Interface stability*. New routes follow the existing shape: a fragment that never reaches a server, an explicit allowlist on the page, and a handler app that re-checks on the Mac and can only reveal, open or focus, never run.
 
 ## Security model
 
