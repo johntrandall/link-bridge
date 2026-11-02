@@ -111,12 +111,31 @@ tailscale serve --bg --https=5465 http://127.0.0.1:5465   # https://<mac>.<tailn
 
 Then `https://<mac>.<tailnet>.ts.net:5465/obsidian#vault=Notes&file=Plan` opens the note in Obsidian on the device that opened the link (an iPad, if that vault is on it), and `/reveal` and `/herdr-jump` show an **On the Mac** button instead of trying a scheme the device cannot handle: the page POSTs `/act/reveal {"path"}`, `/act/herdr-jump {"session"}` or `/act/herdr-workspace {"workspace"}` / `{"label"}` (header `X-Link-Bridge: 1`) and the bridge performs the action on the Mac through the same gates as the handler apps. The header makes any cross-origin attempt a CORS preflight the server never answers. A terminal app that cannot tap links (Moshi today) still needs the URL copied into a browser.
 
+## Registered actions (0.1.12): a command the bridge runs for one caller
+
+Since 0.1.12 the operator of a Mac may register a command the bridge runs on `POST /act/<name>`, for a caller that can make an HTTP request but cannot run anything on the Mac (first case: personal-tracker's Pushcut buttons on John's iPhone, which record one tap each; intake `dev-docs/intake/2026-11-02-route-for-personal-tracker-s-pushcut-taps-runs-r.md`). The request supplies named **values** only; the command line is fixed in `~/.config/link-bridge/actions.toml` (`$LINK_BRIDGE_ACTIONS` overrides; mode 0600; never committed), which only the operator writes:
+
+```toml
+[actions.personal-tracker-tap]
+argv = ["/opt/homebrew/opt/python@3.14/bin/python3.14", "-E", "-s", "/Users/me/dev/personal-tracker/scripts/record_tap.py"]
+params = ["date", "check", "button"]      # each becomes --<param> <value>, in this order; all required
+token = "<48 hex chars>"                  # `link-bridge token` prints a fresh one
+timeout = 20                              # seconds, optional (default 20)
+cwd = "/Users/me/dev/personal-tracker"    # optional
+```
+
+The call: `POST http://<bridge host>/act/personal-tracker-tap` with headers `X-Link-Bridge: 1`, `X-Link-Bridge-Token: <token>`, `Content-Type: application/json`, body `{"date": "2026-11-02", "check": "pills", "button": "Doing it now"}`. The bridge answers `200 {"ok": true, "output": "<stdout>"}`, `400` with the command's refusal (`{"exit": n, "error": "<stderr>"}`) or with the value that was refused, `403` for a missing header or wrong token, `405` for a name that is not registered, `504` on timeout. Pushcut's notification actions carry a method, headers and a body (`urlBackgroundOptions`: `httpMethod`, `httpHeader`, `httpBody`, `httpContentType`), so the phone can make this call in the background.
+
+**Gates, every call:** the `X-Link-Bridge` header (a page on another origin cannot send it without a CORS preflight this server never answers); the per-action token, compared in constant time; each value a non-empty string of at most 128 characters with no control characters and no leading dash (so a value can never become an option); the body at most 4 KiB and a JSON object; the argv fixed and absolute, nothing from the request reaching a shell; a timeout; a minimal environment; and the listener's reach, loopback and the tailnet only. A registration that is not well formed (relative argv, bad name, short token) is skipped and named on stderr, never run. `GET /routes` lists registered names under `registered`.
+
+**Why not a GET with a query string**, which is what the first requester proposed: a GET with side effects is reachable from any page a tailnet device visits (an `<img>` is enough), and its query lands in logs; the POST gates above cost the caller nothing.
+
 ## Interface stability
 
 Other tools depend on these; treat them as a contract and tell the consumers before changing or renaming any of them (today: the Claude Code status line, [sightline](https://github.com/johntrandall/claude-statusline), owned by the `statusline-architect` herdr session on John's Macs):
 
 - `GET /healthz` → `200`, body starting `link-bridge` (then a space and the version)
-- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`, `/herdr-workspace#…` (0.1.8+), and the actions `POST /act/reveal`, `POST /act/herdr-jump` (0.1.7+), `POST /act/herdr-workspace` (0.1.8+); `/herdr-jump` resolves an exited session to its seat's live owner (0.1.9+); `/herdr-owner#…` and `POST /act/herdr-owner {"session"}` focus the seat's current holder even while the asker is live (0.1.11+); `GET /routes` returns `{"version","routes","actions"}` so a consumer can check which routes this bridge has (0.1.11+); `/obsidian` accepts any combination of Obsidian's `open` parameters (`vault`, `file`, `path`, plus `paneType`), `vault=` alone included (0.1.5+), or the Advanced URI set when `filepath=` is present, and refuses every other key
+- the routes `/obsidian#…`, `/reveal#…`, `/vault-setup#…`, `/herdr-jump#…`, `/herdr-workspace#…` (0.1.8+), and the actions `POST /act/reveal`, `POST /act/herdr-jump` (0.1.7+), `POST /act/herdr-workspace` (0.1.8+); `/herdr-jump` resolves an exited session to its seat's live owner (0.1.9+); `/herdr-owner#…` and `POST /act/herdr-owner {"session"}` focus the seat's current holder even while the asker is live (0.1.11+); `GET /routes` returns `{"version","routes","actions","registered"}` so a consumer can check which routes this bridge has (0.1.11+; `registered` since 0.1.12); `POST /act/<name>` for an operator-registered action, gated by `X-Link-Bridge: 1` and `X-Link-Bridge-Token` (0.1.12+); `/obsidian` accepts any combination of Obsidian's `open` parameters (`vault`, `file`, `path`, plus `paneType`), `vault=` alone included (0.1.5+), or the Advanced URI set when `filepath=` is present, and refuses every other key
 - the short home-relative fragment form (`#notes/Plan.md`, `#/abs/path`) beside `#path=…`
 - the install command a consumer shows when the bridge is not running:
   `brew install johntrandall/tap/link-bridge && brew services start link-bridge && link-bridge install-handler`
@@ -143,6 +162,8 @@ Message the link-bridge architect (the herdr tab labelled `🌙 link-bridge …`
 Once you tick a browser's "Always allow" for a bridge host, any link to that host opens the app without a prompt, so a link someone else crafts must not be able to do more than open. Each page therefore forwards only a fixed set of parameters and refuses anything else: `/obsidian` the "open a note" parameters (Advanced URI can also run commands and write files via `commandid`, `data`, `mode`, …; those are refused), `/reveal` and `/vault-setup` a single path. Beyond the page, each handler app re-checks the link on the Mac (`reveal_decode.py`; obsidian-vault-setup's `url --decode`): the path must exist, a reveal never opens anything, a vault-setup path must be under your home folder. The pages load nothing from other sites and ship with a strict Content Security Policy, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and `X-Robots-Tag: noindex`.
 
 What the bridge cannot hide: the app that shows the link sees the whole link. Google Calendar stores it in the event, and its click-through redirect passes the full URL, fragment included, through Google.
+
+**Registered actions are the one exception to "never run"** (0.1.12), and the exception is narrow: the bridge runs only a command line the operator wrote into a mode-0600 config file on the Mac, with the request contributing named values that pass the gates above (no shell, no options, no control characters, a token, the header, the tailnet). A request can make the registered command run with values it validates itself; it cannot choose the command.
 
 ## Prior art, and why yet another one
 

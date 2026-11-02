@@ -8,7 +8,9 @@
     link-bridge install-front-door                        Caddy on 127.0.0.1:80: http://link.localhost (root; sudo prompts)
     link-bridge doctor                                    is the server up, is the handler registered
 
-GET /routes answers JSON {"version","routes","actions"}: the consumer contract as data (0.1.10).
+GET /routes answers JSON {"version","routes","actions","registered"}: the consumer contract as data.
+POST /act/<name>, for a name in ~/.config/link-bridge/actions.toml, runs that operator-registered
+command with the request's named values (X-Link-Bridge: 1 and X-Link-Bridge-Token required; 0.1.12).
 GET /healthz answers "link-bridge <version>" (directly and through the front door), so a status
 line or script can tell the bridge from anything else on the port. POST /act/herdr-jump
 {"session": uuid}, POST /act/herdr-workspace {"workspace": id} or {"label": text} and
@@ -34,7 +36,7 @@ import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.11"
+VERSION = "0.1.12"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -87,7 +89,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if urllib.parse.urlsplit(self.path).path.rstrip("/") == "/routes":
             body = json.dumps({"version": VERSION,
                                "routes": sorted(r for r in ROUTES if r != "/"),
-                               "actions": sorted(self.ACTIONS)}).encode() + b"\n"
+                               "actions": sorted(self.ACTIONS),
+                               "registered": sorted(registered_actions())}).encode() + b"\n"
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -116,7 +119,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = urllib.parse.urlsplit(self.path).path.rstrip("/")
-        if route not in self.ACTIONS:
+        registered = registered_actions() if route.startswith("/act/") else {}
+        reg_name = route[len("/act/"):] if route.startswith("/act/") else ""
+        if route not in self.ACTIONS and reg_name not in registered:
             self.send_error(405)
             return
         if self.headers.get("X-Link-Bridge") != "1":
@@ -125,10 +130,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             length = min(int(self.headers.get("Content-Length") or 0), 4096)
             body = json.loads(self.rfile.read(length) or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError
         except (ValueError, TypeError):
-            self._json(400, {"ok": False, "error": "body must be JSON"})
+            self._json(400, {"ok": False, "error": "body must be a JSON object"})
             return
-        code, result = run_action(self.ACTIONS[route], body)
+        if route in self.ACTIONS:
+            code, result = run_action(self.ACTIONS[route], body)
+        else:
+            code, result = run_registered(reg_name, registered[reg_name], body, self.headers.get("X-Link-Bridge-Token", ""))
         self._json(code, result)
 
     def _json(self, code, obj):
@@ -150,6 +160,89 @@ class Server(socketserver.ThreadingTCPServer):
 
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+# Registered actions (0.1.12): the operator of this Mac may register a command the bridge runs on
+# POST /act/<name>. The request supplies named VALUES only; the command line is fixed in the
+# config file, which only the operator writes, and nothing from the request is interpreted by a
+# shell. Gates on every call: the X-Link-Bridge header (no cross-origin page can send it without a
+# preflight this server never answers), a per-action secret in X-Link-Bridge-Token compared in
+# constant time, each value a short string without control characters or a leading dash, the
+# request body limited to 4 KiB, a timeout, and loopback or tailnet reachability only.
+# Config: ~/.config/link-bridge/actions.toml ($LINK_BRIDGE_ACTIONS overrides), mode 0600:
+#
+#   [actions.personal-tracker-tap]
+#   argv = ["/opt/homebrew/opt/python@3.14/bin/python3.14", "-E", "-s", "/Users/me/dev/personal-tracker/scripts/record_tap.py"]
+#   params = ["date", "check", "button"]      # each becomes --<param> <value>, in this order
+#   token = "<link-bridge token>"             # `link-bridge token` prints a fresh one
+#   timeout = 20                              # seconds, optional
+#   cwd = "/Users/me/dev/personal-tracker"    # optional
+#
+# Why the bridge and not a new daemon: it already runs on the Mac and already answers on the
+# tailnet, and the port policy has no range for a tailnet-facing service here (personal-tracker
+# intake, 2026-11-02). Why no GET: a GET with side effects is reachable from any page a tailnet
+# device visits (an <img> is enough) and its query lands in logs; the POST gates cost Pushcut
+# nothing, its background actions carry a method, headers and a body.
+ACTIONS_CONFIG = os.environ.get("LINK_BRIDGE_ACTIONS") or os.path.expanduser("~/.config/link-bridge/actions.toml")
+ACTION_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+VALUE_MAX = 128
+
+
+def registered_actions():
+    """{name: spec} from the actions config, or {} when there is none or it is unreadable.
+    A spec that is not well formed is dropped, and named on stderr, rather than run."""
+    try:
+        import tomllib
+        with open(ACTIONS_CONFIG, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, ValueError, ImportError):
+        return {}
+    out = {}
+    for name, spec in (data.get("actions") or {}).items():
+        ok = (isinstance(spec, dict) and ACTION_NAME_RE.fullmatch(name)
+              and isinstance(spec.get("argv"), list) and spec["argv"]
+              and all(isinstance(a, str) and a for a in spec["argv"])
+              and os.path.isabs(spec["argv"][0])
+              and isinstance(spec.get("params"), list)
+              and all(isinstance(p, str) and ACTION_NAME_RE.fullmatch(p) for p in spec["params"])
+              and isinstance(spec.get("token"), str) and len(spec["token"]) >= 16)
+        if ok:
+            out[name] = spec
+        else:
+            sys.stderr.write("link-bridge: actions.toml: [actions.%s] is not well formed; skipped\n" % name)
+    return out
+
+
+def clean_value(v):
+    """A request value the runner will pass as one argument, or None when it is refused."""
+    if not isinstance(v, str) or not v or len(v) > VALUE_MAX:
+        return None
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in v) or v.startswith("-"):
+        return None
+    return v
+
+
+def run_registered(name, spec, body, token):
+    """Run one registered action for a request body; (http status, json)."""
+    import hmac
+    if not token or not hmac.compare_digest(token, spec["token"]):
+        return 403, {"ok": False, "error": "bad or missing X-Link-Bridge-Token"}
+    args = list(spec["argv"])
+    for param in spec["params"]:
+        value = clean_value(body.get(param))
+        if value is None:
+            return 400, {"ok": False, "error": "%s is required: a short string, no control characters, no leading dash" % param}
+        args += ["--" + param, value]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=float(spec.get("timeout") or 20),
+                           cwd=spec.get("cwd") or None,
+                           env={"PATH": "/usr/bin:/bin:/opt/homebrew/bin", "HOME": os.path.expanduser("~"), "LANG": "en_US.UTF-8"})
+    except subprocess.TimeoutExpired:
+        return 504, {"ok": False, "action": name, "error": "timed out"}
+    except OSError as e:
+        return 500, {"ok": False, "action": name, "error": str(e)[:200]}
+    if r.returncode == 0:
+        return 200, {"ok": True, "action": name, "output": r.stdout.strip()[:2000]}
+    return 400, {"ok": False, "action": name, "exit": r.returncode, "error": (r.stderr.strip() or r.stdout.strip())[:2000]}
 
 
 def run_action(kind, body):
@@ -279,6 +372,13 @@ def cmd_url(args):
     return 0
 
 
+def cmd_token(_args):
+    """Print a fresh secret for an [actions.<name>] token (48 hex chars)."""
+    import secrets
+    print(secrets.token_hex(24))
+    return 0
+
+
 def cmd_doctor(args):
     import urllib.request
     ok = True
@@ -324,6 +424,7 @@ def main(argv=None):
             p.add_argument("--vault-setup", action="store_true",
                            help="the /vault-setup link (open or create the Obsidian vault) instead of /reveal")
         p.set_defaults(fn=fn)
+    sub.add_parser("token", help="print a fresh secret for a registered action (actions.toml)").set_defaults(fn=cmd_token)
     sub.add_parser("install-handler").set_defaults(fn=cmd_install_handler)
     sub.add_parser("install-front-door").set_defaults(fn=cmd_install_front_door)
     args = ap.parse_args(argv)
