@@ -36,7 +36,7 @@ import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.12"
+VERSION = "0.1.13"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -62,6 +62,7 @@ ROUTES = {"/": "index.html", "/obsidian": "obsidian.html", "/reveal": "reveal.ht
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    timeout = 15          # socket timeout: a client that stalls mid-body cannot hold a thread open
     server_version = "link-bridge"
 
     def __init__(self, *args, **kwargs):
@@ -128,7 +129,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._json(403, {"ok": False, "error": "missing X-Link-Bridge header"})
             return
         try:
-            length = min(int(self.headers.get("Content-Length") or 0), 4096)
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if not 0 <= length <= 4096:
+            # Checked before any read: a negative or absent-but-huge length must not reach rfile.read.
+            self._json(400, {"ok": False, "error": "Content-Length must be 0..4096"})
+            return
+        try:
             body = json.loads(self.rfile.read(length) or b"{}")
             if not isinstance(body, dict):
                 raise ValueError
@@ -138,7 +146,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route in self.ACTIONS:
             code, result = run_action(self.ACTIONS[route], body)
         else:
-            code, result = run_registered(reg_name, registered[reg_name], body, self.headers.get("X-Link-Bridge-Token", ""))
+            code, result = run_registered(reg_name, registered[reg_name], body, self.headers.get("X-Link-Bridge-Token", ""),
+                                          login=self.headers.get("Tailscale-User-Login", ""),
+                                          client=self.client_address[0])
         self._json(code, result)
 
     def _json(self, code, obj):
@@ -176,6 +186,10 @@ UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 #   token = "<link-bridge token>"             # `link-bridge token` prints a fresh one
 #   timeout = 20                              # seconds, optional
 #   cwd = "/Users/me/dev/personal-tracker"    # optional
+#   allow_logins = ["me@github"]              # optional: only these Tailscale logins (Tailscale-User-Login,
+#                                             # set by Serve for untagged tailnet devices, client copies stripped)
+#   allow_loopback = false                    # optional: with allow_logins, also admit calls made on this Mac
+#   rate_per_minute = 10                      # optional: per action, 429 beyond it (default 10)
 #
 # Why the bridge and not a new daemon: it already runs on the Mac and already answers on the
 # tailnet, and the port policy has no range for a tailnet-facing service here (personal-tracker
@@ -204,7 +218,9 @@ def registered_actions():
               and os.path.isabs(spec["argv"][0])
               and isinstance(spec.get("params"), list)
               and all(isinstance(p, str) and ACTION_NAME_RE.fullmatch(p) for p in spec["params"])
-              and isinstance(spec.get("token"), str) and len(spec["token"]) >= 16)
+              and isinstance(spec.get("token"), str) and len(spec["token"]) >= 16
+              and isinstance(spec.get("allow_logins", []), list)
+              and all(isinstance(x, str) and x for x in spec.get("allow_logins", [])))
         if ok:
             out[name] = spec
         else:
@@ -221,11 +237,41 @@ def clean_value(v):
     return v
 
 
-def run_registered(name, spec, body, token):
-    """Run one registered action for a request body; (http status, json)."""
+_RATE = {}          # action name -> recent call times (monotonic seconds); one process, so one bucket
+_RATE_LOCK = __import__("threading").Lock()
+
+
+def rate_limited(name, per_minute):
+    """True when this call would exceed per_minute calls in the last 60 s; records the call otherwise."""
+    import time as _t
+    now = _t.monotonic()
+    with _RATE_LOCK:
+        recent = [t for t in _RATE.get(name, []) if now - t < 60]
+        if len(recent) >= per_minute:
+            _RATE[name] = recent
+            return True
+        recent.append(now)
+        _RATE[name] = recent
+        return False
+
+
+def run_registered(name, spec, body, token, login="", client=""):
+    """Run one registered action for a request body; (http status, json).
+    Gate order: token, caller identity (allow_logins), rate, values, run."""
     import hmac
     if not token or not hmac.compare_digest(token, spec["token"]):
         return 403, {"ok": False, "error": "bad or missing X-Link-Bridge-Token"}
+    allowed = spec.get("allow_logins") or []
+    if allowed:
+        # Tailscale Serve sets Tailscale-User-Login for traffic from an untagged tailnet device and
+        # strips any client-supplied copy; loopback callers and tagged devices carry none.
+        if not login and spec.get("allow_loopback") and client in ("127.0.0.1", "::1"):
+            pass
+        elif login not in allowed:
+            sys.stderr.write("link-bridge: %s refused: login %r not allowed\n" % (name, login or "(none)"))
+            return 403, {"ok": False, "error": "this action is limited to named Tailscale logins"}
+    if rate_limited(name, int(spec.get("rate_per_minute") or 10)):
+        return 429, {"ok": False, "action": name, "error": "rate limit: try again in a minute"}
     args = list(spec["argv"])
     for param in spec["params"]:
         value = clean_value(body.get(param))

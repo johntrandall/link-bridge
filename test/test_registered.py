@@ -17,13 +17,15 @@ PORT = 5498
 TOKEN = "t" * 48
 
 
-def post(path, body, token=TOKEN, header=True):
+def post(path, body, token=TOKEN, header=True, login=None):
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", data=json.dumps(body).encode(),
                                  method="POST", headers={"Content-Type": "application/json"})
     if header:
         req.add_header("X-Link-Bridge", "1")
     if token is not None:
         req.add_header("X-Link-Bridge-Token", token)
+    if login is not None:
+        req.add_header("Tailscale-User-Login", login)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             return r.status, json.loads(r.read())
@@ -48,7 +50,13 @@ class Registered(unittest.TestCase):
         cfg = os.path.join(cls.tmp, "actions.toml")
         with open(cfg, "w") as f:
             f.write(f'[actions.echo]\nargv = ["{sys.executable}", "-I", "{echo}"]\n'
-                    f'params = ["date", "check"]\ntoken = "{TOKEN}"\ntimeout = 10\n'
+                    f'params = ["date", "check"]\ntoken = "{TOKEN}"\ntimeout = 10\nrate_per_minute = 100\n'
+                    f'[actions.phone]\nargv = ["{sys.executable}", "-I", "{echo}"]\nparams = ["x"]\n'
+                    f'token = "{TOKEN}"\nallow_logins = ["me@github"]\nrate_per_minute = 100\n'
+                    f'[actions.local]\nargv = ["{sys.executable}", "-I", "{echo}"]\nparams = ["x"]\n'
+                    f'token = "{TOKEN}"\nallow_logins = ["me@github"]\nallow_loopback = true\n'
+                    f'[actions.slow]\nargv = ["{sys.executable}", "-I", "{echo}"]\nparams = ["x"]\n'
+                    f'token = "{TOKEN}"\nrate_per_minute = 2\n'
                     '[actions.broken]\nargv = ["relative/path"]\nparams = []\ntoken = "short"\n')
         env = {**os.environ, "LINK_BRIDGE_ACTIONS": cfg}
         cls.proc = subprocess.Popen([sys.executable, "-I", BIN, "serve", "--port", str(PORT)],
@@ -66,7 +74,7 @@ class Registered(unittest.TestCase):
     def test_routes_lists_only_well_formed_registrations(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/routes", timeout=5) as r:
             d = json.loads(r.read())
-        self.assertEqual(d["registered"], ["echo"])
+        self.assertEqual(d["registered"], ["echo", "local", "phone", "slow"])
 
     def test_unknown_name_is_405_and_gates_run_in_order(self):
         self.assertEqual(post("/act/nope", {})[0], 405)
@@ -92,6 +100,33 @@ class Registered(unittest.TestCase):
         self.assertEqual(code, 400)
         self.assertIn("refused: boom", d["error"])
         self.assertEqual(d["exit"], 1)
+
+    def test_allow_logins_admits_only_the_named_tailscale_login(self):
+        # Serve sets this header for untagged tailnet devices and strips client copies; the test
+        # plays Serve by setting it on loopback.
+        self.assertEqual(post("/act/phone", {"x": "1"}, login="me@github")[0], 200)
+        self.assertEqual(post("/act/phone", {"x": "1"}, login="other@github")[0], 403)
+        self.assertEqual(post("/act/phone", {"x": "1"})[0], 403)             # loopback, no header
+        self.assertEqual(post("/act/local", {"x": "1"})[0], 200)             # allow_loopback
+        self.assertEqual(post("/act/local", {"x": "1"}, login="other@github")[0], 403)
+
+    def test_rate_limit_per_action(self):
+        self.assertEqual(post("/act/slow", {"x": "1"})[0], 200)
+        self.assertEqual(post("/act/slow", {"x": "1"})[0], 200)
+        self.assertEqual(post("/act/slow", {"x": "1"})[0], 429)
+        self.assertEqual(post("/act/echo", {"date": "d", "check": "c"})[0], 200)   # other buckets untouched
+
+    def test_content_length_is_bounded_before_any_read(self):
+        import http.client
+        for bad in ("-1", "5000", "x"):
+            c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=10)
+            c.putrequest("POST", "/act/echo", skip_accept_encoding=True)
+            c.putheader("X-Link-Bridge", "1"); c.putheader("X-Link-Bridge-Token", TOKEN)
+            c.putheader("Content-Type", "application/json"); c.putheader("Content-Length", bad)
+            c.endheaders()
+            r = c.getresponse(); body = json.loads(r.read() or b"{}"); c.close()
+            self.assertEqual(r.status, 400, bad)
+            self.assertIn("Content-Length", body.get("error", ""))
 
 
 if __name__ == "__main__":
