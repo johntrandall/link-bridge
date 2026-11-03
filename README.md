@@ -207,3 +207,11 @@ python3 -I -m unittest discover -s test -p 'test_*.py'    # handler gates (revea
 ## License
 
 MIT
+
+## Handoffs
+
+| Date | Origin (name, session id) | Receiver (name, session id) | Scope | Historian exited |
+|---|---|---|---|---|
+| 2026-11-03 | admin-technical-e5 (link-bridge architect), d89e6d5a-8330-4b20-8650-cc1697929329 | link-bridge-architect, (see dev-docs/handoffs/2026-11-03-link-bridge-architect.md) | seat | no |
+
+2026-11-03: the origin session built the bridge from 0.1.0 to 0.1.14 (routes obsidian, reveal, vault-setup, herdr-jump, herdr-workspace, herdr-owner, folder; registered actions; front door; tailnet HTTP and HTTPS; the open-links plugin), ran the 7-day watch (closed 10-22, met), and handed the seat off at its context limit; briefing in dev-docs/handoffs/. Left for the receiver: the obsidian-link-bridge skill and the CLAUDE.md link rule should name /folder once sightline's session-links url prints it.
