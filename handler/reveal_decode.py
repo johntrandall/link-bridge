@@ -6,7 +6,9 @@ A reveal:// link can arrive from any app or web page once the scheme is register
 is untrusted. The action is only ever `open -R <path>` (select the item in a Finder window):
 nothing is opened, launched or executed, which keeps these rules short.
 
-Accepted:  reveal://reveal?path=<percent-encoded path>  where the path exists. An absolute path
+Accepted:  reveal://reveal?path=<percent-encoded path>  where the path exists, and (0.1.14)
+           reveal://obsidian?path=<percent-encoded path>, the same rules, acted on by
+           reveal_obsidian.py (open the folder in the Obsidian vault that holds it). An absolute path
            is taken as is; a relative one ("dev/project", or "~/dev/project") is under the home
            folder, which keeps the links a status line shows short.
 Refused:   any other scheme or host, any other parameter, an empty path, control characters,
@@ -19,6 +21,7 @@ import urllib.parse
 
 SCHEME = "reveal"
 HOST = "reveal"
+HOSTS = ("reveal", "obsidian")
 HOME = os.path.expanduser("~")
 BUNDLE_SUFFIXES = (".app", ".framework", ".bundle", ".plugin", ".appex", ".kext", ".xpc", ".prefPane")
 
@@ -28,7 +31,7 @@ def decode(url):
         p = urllib.parse.urlsplit(url)
     except ValueError:
         return None
-    if p.scheme != SCHEME or p.netloc != HOST:
+    if p.scheme != SCHEME or p.netloc not in HOSTS:
         return None
     params = urllib.parse.parse_qsl(p.query, keep_blank_values=True)
     if len(params) != 1 or params[0][0] != "path":
@@ -49,14 +52,24 @@ def decode(url):
     return real
 
 
+def host(url):
+    """"reveal" or "obsidian" for an accepted link, else None."""
+    try:
+        return urllib.parse.urlsplit(url).netloc if urllib.parse.urlsplit(url).netloc in HOSTS else None
+    except ValueError:
+        return None
+
+
 def main(argv):
-    if len(argv) != 2:
-        print("usage: reveal_decode.py <reveal-url>", file=sys.stderr)
+    """Prints the decoded path (exit 0), or nothing (exit 1). With --host, prints "<host> <path>"."""
+    args = [a for a in argv[1:] if a != "--host"]
+    if len(args) != 1:
+        print("usage: reveal_decode.py [--host] <reveal-url>", file=sys.stderr)
         return 2
-    path = decode(argv[1])
+    path = decode(args[0])
     if path is None:
         return 1
-    print(path)
+    print(f"{host(args[0])} {path}" if "--host" in argv else path)
     return 0
 
 

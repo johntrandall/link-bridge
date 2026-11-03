@@ -4,7 +4,7 @@
 // POST to /act/<action> with a custom header (which makes any cross-origin attempt a CORS
 // preflight the server never answers). The bridge re-checks the request with the same gates as
 // the handler apps. Only reachable where the bridge is: loopback, or the tailnet via Tailscale
-// Serve. Pages call wireOnMac(action, payload, isRemote) after they have built their URI.
+// Serve. Pages call wireOnMac(action, payload, label[, elementId]) after they have built their URI.
 (function (root) {
   'use strict';
 
@@ -17,8 +17,8 @@
     return !/Macintosh/.test(ua);
   }
 
-  function wireOnMac(action, payload, label) {
-    var button = document.getElementById('onmac');
+  function wireOnMac(action, payload, label, elementId) {
+    var button = document.getElementById(elementId || 'onmac');
     var status = document.getElementById('status');
     if (!button) return;
     button.hidden = false;

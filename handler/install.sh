@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build and register the URL-scheme handler apps in ~/Applications:
 #   "Reveal in Finder.app"  handles reveal://reveal?path=<path>        (select a file or folder in Finder)
+#                           and reveal://obsidian?path=<folder>       (show the folder in its Obsidian vault)
 #   "Jump to Session.app"   handles herdr-jump://session/<uuid>        (focus that Claude session's herdr tab)
 # Re-run after editing an AppleScript or a resolver; each app is rebuilt in place.
 set -eu
@@ -35,7 +36,7 @@ build_applet() {
 }
 
 build_applet "Reveal in Finder" com.johnrandall.reveal-in-finder reveal reveal-in-finder.applescript \
-  /System/Library/CoreServices/Finder.app/Contents/Resources/Finder.icns reveal_decode.py
+  /System/Library/CoreServices/Finder.app/Contents/Resources/Finder.icns reveal_decode.py reveal_obsidian.py
 build_applet "Jump to Session" com.johnrandall.jump-to-session herdr-jump jump-to-session.applescript \
   /System/Applications/Utilities/Terminal.app/Contents/Resources/Terminal.icns herdr_jump.py
 

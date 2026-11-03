@@ -36,7 +36,7 @@ import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.13"
+VERSION = "0.1.14"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -58,7 +58,8 @@ HEADERS = {
 # Routes without an extension serve the matching page, like Cloudflare's drop-trailing-slash.
 ROUTES = {"/": "index.html", "/obsidian": "obsidian.html", "/reveal": "reveal.html",
           "/vault-setup": "vault-setup.html", "/herdr-jump": "herdr-jump.html",
-          "/herdr-workspace": "herdr-workspace.html", "/herdr-owner": "herdr-owner.html"}
+          "/herdr-workspace": "herdr-workspace.html", "/herdr-owner": "herdr-owner.html",
+          "/folder": "folder.html"}
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -116,7 +117,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # via Tailscale Serve, the tailnet. The custom request header forces a CORS preflight,
     # which this server never answers, so a page on another origin cannot trigger an action.
     ACTIONS = {"/act/herdr-jump": "herdr-jump", "/act/herdr-workspace": "herdr-workspace",
-               "/act/herdr-owner": "herdr-owner", "/act/reveal": "reveal"}
+               "/act/herdr-owner": "herdr-owner", "/act/reveal": "reveal",
+               "/act/folder-obsidian": "folder-obsidian"}
 
     def do_POST(self):
         route = urllib.parse.urlsplit(self.path).path.rstrip("/")
@@ -332,6 +334,21 @@ def run_action(kind, body):
         if r.returncode == 0:
             return 200, {"ok": True, "action": "herdr-workspace", "workspace": workspace or None, "label": label or None}
         return (404 if r.returncode == 1 else 400), {"ok": False, "error": "workspace not found" if r.returncode == 1 else "refused"}
+    if kind == "folder-obsidian":
+        path = str(body.get("path", ""))
+        if not path or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):
+            return 400, {"ok": False, "error": "path required"}
+        url = "reveal://obsidian?path=" + urllib.parse.quote(path, safe="")
+        r = subprocess.run([sys.executable, "-I", os.path.join(HANDLER_DIR, "reveal_decode.py"), url],
+                           capture_output=True, text=True, timeout=10)
+        real = r.stdout.strip()
+        if r.returncode != 0 or not real:
+            return 404, {"ok": False, "error": "path refused or missing"}
+        r = subprocess.run([sys.executable, "-I", os.path.join(HANDLER_DIR, "reveal_obsidian.py"), real],
+                           capture_output=True, text=True, timeout=45)
+        if r.returncode == 2:
+            return 404, {"ok": False, "error": "not inside a registered Obsidian vault"}
+        return 200, {"ok": True, "action": "folder-obsidian", "path": real, "note": r.returncode == 0}
     if kind == "reveal":
         path = str(body.get("path", ""))
         if not path or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):

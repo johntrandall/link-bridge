@@ -63,5 +63,47 @@ class RevealDecode(unittest.TestCase):
         self.assertIsNone(rd.decode(link(ln)))
 
 
+class ObsidianHost(unittest.TestCase):
+    def test_obsidian_host_decodes_like_reveal(self):
+        home = os.path.expanduser("~")
+        self.assertEqual(rd.decode("reveal://obsidian?path=" + urllib.parse.quote(home, safe="")), os.path.realpath(home))
+        self.assertEqual(rd.host("reveal://obsidian?path=x"), "obsidian")
+        self.assertEqual(rd.host("reveal://reveal?path=x"), "reveal")
+        self.assertIsNone(rd.decode("reveal://finder?path=" + urllib.parse.quote(home, safe="")))
+        self.assertIsNone(rd.host("reveal://finder?path=x"))
+
+
+class RevealObsidianPlan(unittest.TestCase):
+    def setUp(self):
+        import json as _json
+        import reveal_obsidian as ro
+        self.ro = ro
+        self.tmp = tempfile.mkdtemp()
+        self.vault = os.path.join(self.tmp, "myvault"); os.makedirs(os.path.join(self.vault, "runs", "r1", "sub"))
+        os.makedirs(os.path.join(self.vault, "empty"))
+        open(os.path.join(self.vault, "runs", "r1", "zeta.md"), "w").close()
+        open(os.path.join(self.vault, "runs", "r1", "alpha.md"), "w").close()
+        open(os.path.join(self.vault, "runs", "r1", "sub", "deep.md"), "w").close()
+        os.makedirs(os.path.join(self.vault, "runs", "r2", "sub")); open(os.path.join(self.vault, "runs", "r2", "sub", "only.md"), "w").close()
+        os.makedirs(os.path.join(self.vault, "runs", "r3")); open(os.path.join(self.vault, "runs", "r3", "README.md"), "w").close()
+        open(os.path.join(self.vault, "runs", "r3", "aaa.md"), "w").close()
+        self.registry = os.path.join(self.tmp, "obsidian.json")
+        with open(self.registry, "w") as f:
+            _json.dump({"vaults": {"a": {"path": self.vault}, "b": {"path": self.tmp}}}, f)
+
+    def test_deepest_vault_and_note_choice(self):
+        p = self.ro.plan(os.path.join(self.vault, "runs", "r1"), self.registry)
+        self.assertEqual((p["vault"], p["note"], p["folder"]), ("myvault", "runs/r1/alpha.md", "runs/r1"))
+        self.assertEqual(self.ro.plan(os.path.join(self.vault, "runs", "r3"), self.registry)["note"], "runs/r3/README.md")
+        self.assertEqual(self.ro.plan(os.path.join(self.vault, "runs", "r2"), self.registry)["note"], "runs/r2/sub/only.md")
+        self.assertIsNone(self.ro.plan(os.path.join(self.vault, "empty"), self.registry)["note"])
+        self.assertEqual(self.ro.plan(os.path.join(self.vault, "runs", "r1", "zeta.md"), self.registry)["note"], "runs/r1/zeta.md")
+        self.assertEqual(self.ro.plan(self.vault, self.registry)["folder"], ".")
+
+    def test_outside_every_vault(self):
+        self.assertIsNone(self.ro.plan("/", self.registry))
+        self.assertIsNone(self.ro.plan(self.tmp + "x", self.registry))
+
+
 if __name__ == "__main__":
     unittest.main()
