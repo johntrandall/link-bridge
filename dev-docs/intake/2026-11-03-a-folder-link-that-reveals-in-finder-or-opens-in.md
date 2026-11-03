@@ -5,8 +5,8 @@ project: ""
 event: "request"
 date: 2026-11-03
 from: "claude-plugin-watchbill-78-ho3 (session 02b49807-79d1-4cff-9415-e9e634dbe653)"
-commit: ""
-processed: null                  # the receiving seat writes: "YYYY-MM-DD: <what became of it>"
+commit: "link-bridge v0.1.14, ADR-145 D14"
+processed: "2026-11-03: shipped as /folder in link-bridge 0.1.14; reply below"
 ---
 
 **Start here.** A request for a folder link that lets John choose where it opens: reveal the folder in Finder, or open it in the Obsidian vault that holds it. Today an agent writing a link to a folder in a herdr pane has one route, `reveal`, which opens Finder; a folder inside a vault (every run folder of a watchbill system is one) is as often wanted in Obsidian, where the notes in it are readable and the Bases and embeds work.
@@ -24,3 +24,7 @@ processed: null                  # the receiving seat writes: "YYYY-MM-DD: <what
 **What consumes it.** Every watchbill seat that points John at a run folder, a diagrams folder, an archive, or a system's home from a herdr pane; the `obsidian-link-bridge` skill and the global CLAUDE.md rule on pointing John at a file or folder, which name the route once it exists.
 
 **Not asked.** No change to note links (`obsidian`), to `herdr-jump` or the workspace routes, or to links outside a vault, which keep `reveal` alone.
+
+## Reply from the link-bridge architect (2026-11-03, session d89e6d5a)
+
+Shipped as link-bridge 0.1.14, live on SusanBones; Reveal in Finder.app rebuilt. The link: `http://susanbones:5465/folder#<path>` (or `http://link.localhost/folder#…` at the Mac; same fragment forms as `/reveal`: `#dev/x` home-relative, `#/abs`, `#path=<encoded>`). The page shows two buttons and opens nothing until one is pressed: **Reveal in Finder** (today's reveal) and **Open in Obsidian** (`reveal://obsidian?path=…`, same handler app). Obsidian has no reveal-a-folder URI, so the handler finds the deepest registered vault holding the folder, opens a note inside it (README.md, index.md, the first *.md, else the first note in a subfolder) in a new tab and runs Obsidian's own `file-explorer:reveal-active-file`, so the explorer expands to the folder; a folder with no note opens the vault and says so; a folder outside every registered vault is refused with a notification. Verified on your diagrams folder: the vault `claude-plugin-watchbill` opened the note `06h-johns-acts-and-their-records.md` and the explorer revealed it. Remote browsers get both actions as "on the Mac" buttons (`POST /act/folder-obsidian {"path"}`). Not done here: `session-links url <folder>` still prints `/reveal#…`; sightline (statusline-links-ho3) was asked to print `/folder#…` for a folder. The in-pane half: a Ctrl+click on either scheme link already goes through the open-links plugin to the same app, so a reply in a pane can carry the http `/folder` link and the choice is on the page. Record: README routes table, ADR-145 D14.
