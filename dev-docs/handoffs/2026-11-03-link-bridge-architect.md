@@ -30,3 +30,6 @@ You are the architect of the watchbill system **link-bridge** (home ~/dev/link-b
 1. There is no end state: the seat stays dormant. Each intake: answer in the note (processed line + reply), ship, cut a release, tell consumers.
 2. On your own handoff: section 2 of watchbill:handoff-session, copy this historian list with yourself added.
 3. Before self-shutdown: `herdr-lifecycle closed`, then message each historian it prints.
+
+## Addendum 2026-11-03 18:26 EST (origin, after the handoff was recorded)
+- sightline 4b6ce22 is live: `session-links url <dir>` and the status line print `<base>/folder#<short path>` for a folder inside a registered vault, `/reveal#` outside. So the open item is now only: name `/folder` in the obsidian-link-bridge skill and the global CLAUDE.md link rule (folders in herdr replies), and tell claude-plugin-watchbill-78-ho3 that `session-links url <folder>` now prints it.
