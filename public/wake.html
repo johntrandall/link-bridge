@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Wake a watchbill seat</title>
+<link rel="stylesheet" href="/bridge.css">
+<script src="/onmac.js"></script>
+<script src="/wake.js"></script>
+</head>
+<body>
+<main>
+  <h1>Wake a watchbill seat</h1>
+  <p id="status">Reading the link…</p>
+  <p id="where" class="where"></p>
+  <p><a id="onmac" class="button" href="#" hidden>Wake it on the Mac</a></p>
+  <p class="note">Nothing happens until you press the button. It asks the bridge on the Mac to run the command shown
+  above: <code>watchbill resume</code> starts the seat that is asleep (a Claude Code session in its own herdr tab, in
+  its system's workspace, with its whole conversation) and refuses when nothing of that name is asleep there, when the
+  seat is live, or when the system is unknown. This is the only bridge button that starts an agent, so it never fires
+  on its own and has no <code>herdr-jump://</code> scheme form that another page or app could emit.</p>
+  <noscript><p>This page needs JavaScript to read the link.</p></noscript>
+</main>
+</body>
+</html>

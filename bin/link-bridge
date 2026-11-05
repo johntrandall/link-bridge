@@ -15,7 +15,9 @@ GET /healthz answers "link-bridge <version>" (directly and through the front doo
 line or script can tell the bridge from anything else on the port. POST /act/herdr-jump
 {"session": uuid}, POST /act/herdr-workspace {"workspace": id} or {"label": text} and
 POST /act/reveal {"path": p} (header X-Link-Bridge: 1) perform those actions on this Mac for a
-browser that is not on it (iPad via the tailnet).
+browser that is not on it (iPad via the tailnet). POST /act/wake {"system", "seat"} runs
+`watchbill resume <system> --seat <seat>` (0.1.15): the one action that starts an agent, so the
+/wake page fires it only on a button press, on the Mac and off it alike.
 
 The pages turn an https/http link into an app link (obsidian://, reveal://, obsidian-vault-setup://,
 herdr-jump://) for places that only
@@ -36,7 +38,7 @@ import subprocess
 import sys
 import urllib.parse
 
-VERSION = "0.1.14"
+VERSION = "0.1.15"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5465
 
@@ -59,7 +61,7 @@ HEADERS = {
 ROUTES = {"/": "index.html", "/obsidian": "obsidian.html", "/reveal": "reveal.html",
           "/vault-setup": "vault-setup.html", "/herdr-jump": "herdr-jump.html",
           "/herdr-workspace": "herdr-workspace.html", "/herdr-owner": "herdr-owner.html",
-          "/folder": "folder.html"}
+          "/folder": "folder.html", "/wake": "wake.html"}
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -118,7 +120,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # which this server never answers, so a page on another origin cannot trigger an action.
     ACTIONS = {"/act/herdr-jump": "herdr-jump", "/act/herdr-workspace": "herdr-workspace",
                "/act/herdr-owner": "herdr-owner", "/act/reveal": "reveal",
-               "/act/folder-obsidian": "folder-obsidian"}
+               "/act/folder-obsidian": "folder-obsidian", "/act/wake": "wake"}
 
     def do_POST(self):
         route = urllib.parse.urlsplit(self.path).path.rstrip("/")
@@ -361,7 +363,48 @@ def run_action(kind, body):
             return 404, {"ok": False, "error": "path refused or missing"}
         subprocess.run(["/usr/bin/open", "-R", real], capture_output=True, timeout=10)
         return 200, {"ok": True, "action": "reveal", "path": real}
+    if kind == "wake":
+        return run_wake(body)
     return 400, {"ok": False, "error": "unknown action"}
+
+
+# /act/wake (0.1.15; asked by watchbill 0.10.95, D12 §8, intake 2026-11-05): `_seats.md` in the
+# cross-system queue vault lists every asleep lead designer and steward with the command that wakes
+# it, dead text in Obsidian; /wake#<system>/<seat> makes the row one click. The bridge runs the fixed
+# argv [watchbill, resume, <system>, --seat, <seat>] with the two names as plain arguments, each a
+# slug (no shell, no leading dash, 64 characters at most). watchbill itself is the judge of the
+# rest: it refuses an unknown system, a seat that is not asleep (live or never seen), and a session
+# past its hard line, and it spawns the seat in its own herdr workspace through herdr-lifecycle.
+# Why no herdr-jump://wake scheme form: a registered scheme can be emitted by any page or app
+# and fires with no page in between; this action starts an agent, so the only way in is the page's
+# button or a same-origin POST that carries the X-Link-Bridge header.
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}", re.IGNORECASE)
+WATCHBILL_BIN = os.environ.get("WATCHBILL_BIN_PATH") or os.path.expanduser("~/.local/bin/watchbill")
+# brew services start the server with a bare PATH; watchbill and the tools it calls (herdr,
+# herdr-lifecycle, claude) live in these.
+TOOL_PATH = ":".join([os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])
+
+
+def run_wake(body):
+    system = str(body.get("system", ""))
+    seat = str(body.get("seat", "")) or "lead-designer"
+    if not SLUG_RE.fullmatch(system):
+        return 400, {"ok": False, "error": "system must be one watchbill slug"}
+    if not SLUG_RE.fullmatch(seat):
+        return 400, {"ok": False, "error": "seat must be one watchbill slug"}
+    if not (os.path.isfile(WATCHBILL_BIN) and os.access(WATCHBILL_BIN, os.X_OK)):
+        return 501, {"ok": False, "error": "watchbill is not installed on this Mac (WATCHBILL_BIN_PATH)"}
+    argv = [WATCHBILL_BIN, "resume", system.lower(), "--seat", seat.lower()]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=120,
+                           env={**os.environ, "PATH": TOOL_PATH + ":" + os.environ.get("PATH", "")})
+    except subprocess.TimeoutExpired:
+        return 504, {"ok": False, "action": "wake", "error": "watchbill resume did not finish in 120 s"}
+    said = (r.stdout.strip() or r.stderr.strip())[:2000]
+    if r.returncode == 0:
+        return 200, {"ok": True, "action": "wake", "system": system.lower(), "seat": seat.lower(), "output": said}
+    # 1: no such system, or nothing of that name is asleep (live seats included); 3: past its hard line.
+    return (409 if r.returncode in (1, 3) else 400), {"ok": False, "action": "wake", "exit": r.returncode, "error": said}
 
 
 def cmd_serve(args):

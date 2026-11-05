@@ -81,6 +81,22 @@ class Actions(unittest.TestCase):
         self.assertEqual(post("/act/reveal", {"path": "/definitely/not/here"})[0], 404)
         self.assertEqual(post("/act/reveal", {"path": "/tmp/a\nb"})[0], 400)
 
+    def test_wake_refusals(self):
+        # Bad names never reach watchbill (400); a well-formed name reaches `watchbill resume`, which
+        # refuses an unknown system (409), or the bridge says watchbill is not installed here (501).
+        self.assertEqual(post("/act/wake", {"system": "", "seat": "steward"})[0], 400)
+        self.assertEqual(post("/act/wake", {"system": "../etc", "seat": "steward"})[0], 400)
+        self.assertEqual(post("/act/wake", {"system": "watchbill", "seat": "--dry-run"})[0], 400)
+        self.assertEqual(post("/act/wake", {"system": "watchbill", "seat": "a b"})[0], 400)
+        self.assertEqual(post("/act/wake", {"system": "x" * 65})[0], 400)
+        code, body = post("/act/wake", {"system": "no-such-system-7f3a", "seat": "lead-designer"})
+        self.assertIn(code, (409, 501))
+        self.assertFalse(body["ok"])
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/routes", timeout=5) as r:
+            d = json.loads(r.read())
+        self.assertIn("/wake", d["routes"])
+        self.assertIn("/act/wake", d["actions"])
+
     def test_healthz_and_csp(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/reveal", timeout=5) as r:
             self.assertIn("connect-src 'self'", r.headers.get("Content-Security-Policy", ""))
