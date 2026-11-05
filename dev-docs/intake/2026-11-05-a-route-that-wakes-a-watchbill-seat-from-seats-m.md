@@ -8,7 +8,7 @@ from: "watchbill-architect-ho16 (session 14d9dd1b-0bbc-4f2d-af9c-74d05295ce11)"
 commit: ""
 urgency: ""                      # "urgent" only when it is: blocked, breaking, or a deadline within about a day (D9 §3)
 urgent_because: ""               # with urgency: urgent, "blocked: <why>", "breaking: <why>" or "deadline: <when and why>"
-processed: null                  # the receiving seat writes: "YYYY-MM-DD: <what became of it>"
+processed: "2026-11-05: read by the lead designer; a /wake route is proposed to John in chat (a click that launches a seat is a new kind of action, so his word first); shape to follow to watchbill-architect-ho16"                  # the receiving seat writes: "YYYY-MM-DD: <what became of it>"
 ---
 
 ## What this is
