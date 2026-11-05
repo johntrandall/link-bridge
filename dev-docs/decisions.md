@@ -2,6 +2,7 @@
 
 Decisions for the human and the standing grants he has made. One line per item, newest first.
 
+- 2026-11-05 ~18:05 John, in chat (AskUserQuestion, "Opus"): the cold security verifier for the /wake build (run 2026-11-05-wake) runs on Opus, the exception D1 R-10 needs for a spawn of watchbill:verifier off its Sonnet default; this line is the recorded yes passed as `--approved`.
 - 2026-11-05 17:10 John, in chat (AskUserQuestion, answered "Yes, build it as proposed"): build the `/wake` route asked by watchbill's intake note of 2026-11-05 (`http://link.localhost/wake#<system>/<seat>` → a page naming the command → one button → `POST /act/wake` runs `watchbill resume <system> --seat <seat>` on this Mac; refused when the seat is live; no token, the confirmation click is the gate, same `X-Link-Bridge` header as the other actions). The first bridge action that launches a Claude session from a link; outside the 2026-10-16 listen-mode grant, so asked.
 - 2026-10-29 ~15:25 John, "approved" (said in the infra-account-watch-orch session, relayed by its intake note; a relay is a lead, recorded so John can reverse it with a word): the link-bridge system owns `~/dev/herdr-open-links` too. One route, two entry points (browser → pages and handler apps; pane → plugin), one change per release; `herdr-jump.py` stays in step with `handler/herdr_jump.py`. Documentation only; mirror `dev/herdr-open-links` and manifest row added; README roster; watch.md plugin probe.
 - 2026-10-16 18:05 John, standing autonomy (listen-mode): "if other agents come to you with their needs for
