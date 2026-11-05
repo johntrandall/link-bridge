@@ -10,3 +10,4 @@ h1 { font-size: 1.4rem; margin: 0 0 0.75rem; }
 .button { display: inline-block; padding: 0.55rem 1.1rem; border-radius: 8px; background: var(--accent); color: var(--accent-fg); text-decoration: none; font-weight: 600; }
 .button[hidden] { display: none; }
 .note { font-size: 0.85rem; color: var(--muted); }
+.button[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }

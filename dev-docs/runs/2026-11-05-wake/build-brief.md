@@ -27,4 +27,7 @@ link-bridge is the local link bridge on this Mac: a small Python server (`bin/li
 A listener on loopback and the tailnet (Tailscale Serve) now runs a command that spawns a Claude Code session, on a POST that carries no token. The gates are the ones every `/act/` action has: the custom header (a cross-origin page cannot send it without a CORS preflight the server never answers), a 4 KiB body, no shell, and watchbill's own refusals. The cold verifier judges whether that is enough for an action that starts an agent, and names file and line for anything it is not.
 
 ## Gate
-No `tests/run-all.sh` here; the suites are `node --test test/` and `python3 -I -m unittest discover -s test -p 'test_*.py'` (README "Tests"). Both green on d2799ad (37 node tests, 46 python tests).
+No `tests/run-all.sh` here; the suites are `node --test test/` and `python3 -I -m unittest discover -s test -p 'test_*.py'` (README "Tests"). Both green on d2799ad (37 node tests, 40 python tests; the first draft of this line said 46, the verifier counted 40).
+
+## After the first security verdict (FAIL on 8b3736d, `security-verdict.md`)
+Fixed in the next commit: a Host allowlist on every `POST /act/…` (finding 2, DNS rebinding) with a test; a non-blocking lock plus a 60 s per-seat cooldown in `run_wake` and a button that disables itself on the first click (finding 5) with a two-concurrent-clicks test on a sleeping fake watchbill; `re.ASCII` on the slug grammar (finding 1) with Kelvin-sign and İ tests; the README security model paragraph and the 504/400 codes in the interface line (finding 7); timeout 300 s and the caller's login logged (recommended).

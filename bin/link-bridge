@@ -36,6 +36,8 @@ import re
 import socketserver
 import subprocess
 import sys
+import threading
+import time
 import urllib.parse
 
 VERSION = "0.1.15"
@@ -46,6 +48,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 # In the repo: bin/../public. Installed by Homebrew: libexec/bin/../public (same shape).
 ROOT = os.environ.get("LINK_BRIDGE_ROOT") or os.path.join(os.path.dirname(HERE), "public")
 HANDLER_DIR = os.path.join(os.path.dirname(HERE), "handler")
+FRONT_DOOR_NAME = os.environ.get("LINK_BRIDGE_NAME", "link.localhost")
 
 # Same policy as public/_headers (which Cloudflare reads and a local server does not).
 HEADERS = {
@@ -129,6 +132,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route not in self.ACTIONS and reg_name not in registered:
             self.send_error(405)
             return
+        host = self.headers.get("Host", "")
+        if not host_allowed(host):
+            # DNS rebinding (0.1.15, the cold verifier's finding 2): a page served from an attacker's
+            # hostname that resolves to 127.0.0.1 is same-origin with itself, so it can send the custom
+            # header with no preflight. The Host it sends is its own name, never one of ours.
+            sys.stderr.write(f"refused POST {route}: Host {host!r} is not this bridge (LINK_BRIDGE_HOSTS adds names)\n")
+            self._json(403, {"ok": False, "error": "Host is not this bridge"})
+            return
         if self.headers.get("X-Link-Bridge") != "1":
             self._json(403, {"ok": False, "error": "missing X-Link-Bridge header"})
             return
@@ -148,7 +159,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "body must be a JSON object"})
             return
         if route in self.ACTIONS:
-            code, result = run_action(self.ACTIONS[route], body)
+            code, result = run_action(self.ACTIONS[route], body,
+                                      caller=self.headers.get("Tailscale-User-Login", "") or f"loopback {self.client_address[0]}")
         else:
             code, result = run_registered(reg_name, registered[reg_name], body, self.headers.get("X-Link-Bridge-Token", ""),
                                           login=self.headers.get("Tailscale-User-Login", ""),
@@ -171,6 +183,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+
+def host_allowed(host, extra=None):
+    """Is the request's Host one of this bridge's own names? The front-door name, loopback names, this Mac's
+    hostname (bare, .local, and its tailnet FQDN <host>.<tailnet>.ts.net, which Tailscale Serve passes through),
+    and the names in $LINK_BRIDGE_HOSTS (comma-separated). The port is ignored: the rebinding attacker controls
+    the name, not the port. A refusal is logged with the Host, so a missing name shows up in the service log."""
+    name = host.strip().lower()
+    if name.startswith("["):                       # [::1]:5465
+        name = name[1:name.find("]")] if "]" in name else name
+    else:
+        name = name.rsplit(":", 1)[0] if re.fullmatch(r"[^:]+:\d+", name) else name
+    if not name:
+        return False
+    short = (os.uname().nodename.split(".")[0] if hasattr(os, "uname") else "").lower()
+    ok = {FRONT_DOOR_NAME.lower(), "localhost", "127.0.0.1", "::1"}
+    ok |= {x.strip().lower() for x in (extra if extra is not None else os.environ.get("LINK_BRIDGE_HOSTS", "")).split(",") if x.strip()}
+    if short:
+        ok |= {short, short + ".local"}
+        if re.fullmatch(re.escape(short) + r"\.[a-z0-9-]+\.ts\.net", name):
+            return True
+    return name in ok
 
 
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -295,7 +329,7 @@ def run_registered(name, spec, body, token, login="", client=""):
     return 400, {"ok": False, "action": name, "exit": r.returncode, "error": (r.stderr.strip() or r.stdout.strip())[:2000]}
 
 
-def run_action(kind, body):
+def run_action(kind, body, caller=""):
     """Perform a page-requested action on this Mac through the same gates as the handler apps."""
     if kind == "herdr-jump":
         session = str(body.get("session", "")).lower()
@@ -364,7 +398,7 @@ def run_action(kind, body):
         subprocess.run(["/usr/bin/open", "-R", real], capture_output=True, timeout=10)
         return 200, {"ok": True, "action": "reveal", "path": real}
     if kind == "wake":
-        return run_wake(body)
+        return run_wake(body, caller)
     return 400, {"ok": False, "error": "unknown action"}
 
 
@@ -378,31 +412,52 @@ def run_action(kind, body):
 # Why no herdr-jump://wake scheme form: a registered scheme can be emitted by any page or app
 # and fires with no page in between; this action starts an agent, so the only way in is the page's
 # button or a same-origin POST that carries the X-Link-Bridge header.
-SLUG_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}", re.IGNORECASE)
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}", re.IGNORECASE | re.ASCII)  # ASCII: no Kelvin sign, no İ
 WATCHBILL_BIN = os.environ.get("WATCHBILL_BIN_PATH") or os.path.expanduser("~/.local/bin/watchbill")
 # brew services start the server with a bare PATH; watchbill and the tools it calls (herdr,
 # herdr-lifecycle, claude) live in these.
 TOOL_PATH = ":".join([os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])
 
 
-def run_wake(body):
+# One wake at a time, and one per (system, seat) per minute (the cold verifier's finding 5): the server
+# is threaded and `watchbill resume` holds no lock, so two clicks inside the spawn window would resume
+# the same conversation twice. The timeout exceeds watchbill's own spawn budget (240 s for
+# herdr-lifecycle, then the first prompt), so the bridge never kills a resume mid-spawn.
+WAKE_LOCK = threading.Lock()
+WAKE_LAST = {}            # (system, seat) -> time of the last successful wake
+WAKE_COOLDOWN = 60.0
+WAKE_TIMEOUT = 300
+
+
+def run_wake(body, caller=""):
     system = str(body.get("system", ""))
     seat = str(body.get("seat", "")) or "lead-designer"
     if not SLUG_RE.fullmatch(system):
         return 400, {"ok": False, "error": "system must be one watchbill slug"}
     if not SLUG_RE.fullmatch(seat):
         return 400, {"ok": False, "error": "seat must be one watchbill slug"}
+    system, seat = system.lower(), seat.lower()
     if not (os.path.isfile(WATCHBILL_BIN) and os.access(WATCHBILL_BIN, os.X_OK)):
         return 501, {"ok": False, "error": "watchbill is not installed on this Mac (WATCHBILL_BIN_PATH)"}
-    argv = [WATCHBILL_BIN, "resume", system.lower(), "--seat", seat.lower()]
+    if not WAKE_LOCK.acquire(blocking=False):
+        return 409, {"ok": False, "action": "wake", "error": "a wake is already running on this Mac; wait for it"}
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=120,
-                           env={**os.environ, "PATH": TOOL_PATH + ":" + os.environ.get("PATH", "")})
-    except subprocess.TimeoutExpired:
-        return 504, {"ok": False, "action": "wake", "error": "watchbill resume did not finish in 120 s"}
-    said = (r.stdout.strip() or r.stderr.strip())[:2000]
-    if r.returncode == 0:
-        return 200, {"ok": True, "action": "wake", "system": system.lower(), "seat": seat.lower(), "output": said}
+        since = time.monotonic() - WAKE_LAST.get((system, seat), -WAKE_COOLDOWN)
+        if since < WAKE_COOLDOWN:
+            return 409, {"ok": False, "action": "wake", "error": f"{seat} of {system} was woken {int(since)} s ago; wait a minute"}
+        sys.stderr.write(f"wake {system} --seat {seat} asked by {caller or 'unknown'}\n")
+        argv = [WATCHBILL_BIN, "resume", system, "--seat", seat]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=WAKE_TIMEOUT,
+                               env={**os.environ, "PATH": TOOL_PATH + ":" + os.environ.get("PATH", "")})
+        except subprocess.TimeoutExpired:
+            return 504, {"ok": False, "action": "wake", "error": f"watchbill resume did not finish in {WAKE_TIMEOUT} s"}
+        said = (r.stdout.strip() or r.stderr.strip())[:2000]
+        if r.returncode == 0:
+            WAKE_LAST[(system, seat)] = time.monotonic()
+            return 200, {"ok": True, "action": "wake", "system": system, "seat": seat, "output": said}
+    finally:
+        WAKE_LOCK.release()
     # 1: no such system, or nothing of that name is asleep (live seats included); 3: past its hard line.
     return (409 if r.returncode in (1, 3) else 400), {"ok": False, "action": "wake", "exit": r.returncode, "error": said}
 
@@ -437,9 +492,6 @@ def short_path(path):
     if path.startswith(home + os.sep):
         path = path[len(home) + 1:]
     return urllib.parse.quote(path, safe="/")
-
-
-FRONT_DOOR_NAME = os.environ.get("LINK_BRIDGE_NAME", "link.localhost")
 
 
 def front_door_configured():

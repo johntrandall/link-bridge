@@ -23,8 +23,12 @@
     if (!button) return;
     button.hidden = false;
     button.textContent = label;
+    var busy = false;
     button.onclick = function (ev) {
       ev.preventDefault();
+      if (busy) return;                      // a second click while the first is in flight does nothing
+      busy = true;
+      button.setAttribute('aria-disabled', 'true');
       status.textContent = 'Asking the Mac…';
       fetch('/act/' + action, {
         method: 'POST',
@@ -32,9 +36,16 @@
         body: JSON.stringify(payload)
       }).then(function (r) { return r.json().then(function (j) { return [r.status, j]; }); })
         .then(function (res) {
-          status.textContent = res[1].ok ? 'Done on the Mac.' : ('The Mac said no: ' + (res[1].error || res[0]));
+          status.textContent = res[1].ok ? ('Done on the Mac.' + (res[1].output ? ' ' + res[1].output : '')) : ('The Mac said no: ' + (res[1].error || res[0]));
+          if (res[1].ok && action === 'wake') { button.hidden = true; return; }   // one wake per page: the seat is live now
+          busy = false;
+          button.removeAttribute('aria-disabled');
         })
-        .catch(function () { status.textContent = 'Could not reach the Mac (is the bridge served on this network?).'; });
+        .catch(function () {
+          status.textContent = 'Could not reach the Mac (is the bridge served on this network?).';
+          busy = false;
+          button.removeAttribute('aria-disabled');
+        });
     };
   }
 
