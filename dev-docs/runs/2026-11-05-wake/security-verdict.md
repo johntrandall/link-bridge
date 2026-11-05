@@ -1,0 +1,23 @@
+---
+verdict: pass
+sha: 379b2c1c866bbb2c0cbfca5902d204aae9c2bcb1
+verifier: 0f143c8f-a827-42b2-b513-bf7ca0a08b62
+supersedes: the FAIL on 8b3736d7925e48b5a73464d0f8ac364456f397fe (commit 5640cb7; its text stays in this file's history)
+---
+# Security verdict: /wake and POST /act/wake (link-bridge 0.1.15)
+
+Re-checked cold in a detached worktree of 379b2c1, against a scratch bridge on 127.0.0.1:5493 that I started and killed myself. Probes used both the real `~/.local/bin/watchbill` 0.10.95 and a fake that logs its argv and sleeps for 3 s. **Verified** means I ran the check.
+
+**1. Argument safety (pass).** `SLUG_RE` is now `re.IGNORECASE | re.ASCII` (bin/link-bridge:415), and the names are lowercased after the check, before any use (:439). `run_wake` passes a fixed argv list with no shell (:449-451). The new tests cover the Kelvin sign and 64 × U+0130, and both answer 400. Earlier, on 8b3736d, I verified that `-x`, `a b` and `a;b` answer 400; the slug check that refuses them has not changed apart from the ASCII flag.
+
+**2. Request gates (pass).** `host_allowed()` (:188-207) runs before the header check on every `POST /act/*` (:135-142). It accepts the front-door name, localhost, 127.0.0.1, ::1, this Mac's short name, `<short>.local`, `<short>.<tailnet>.ts.net` and `$LINK_BRIDGE_HOSTS`, and ignores the port. Verified 403 for each of these Host values: `evil.example:5493`, `susanbones.evil.example`, `127.0.0.1.evil.example`, `link.localhost.evil.example`, `evil.example:5493:5465`, and an empty Host. Verified that `link.localhost`, `127.0.0.1:5465`, `localhost:5465`, `[::1]:5465`, `susanbones:5465`, `susanbones.local` and `susanbones.flicker-duckbill.ts.net:5465` all pass through to watchbill. A rebinding attacker cannot point a `*.ts.net` name at 127.0.0.1, because Tailscale controls that DNS. A spoofed `.local` name would need an attacker on the LAN running an mDNS spoof against a listener bound to loopback; I accept that residual risk. Unchanged from the first check: no `do_OPTIONS` (a preflight answers 501), 403 without `X-Link-Bridge` (Verified again), the 4 KiB body cap, no GET with side effects, and the CSP with `connect-src 'self'; form-action 'none'; frame-ancestors 'none'`.
+
+**3. The page (pass).** `render` still only wires `onclick`; on 8b3736d I verified that a headless Chrome load called watchbill 0 times. onmac.js now ignores clicks while a fetch is in flight (`busy`, public/onmac.js:26-31) and hides the button after a successful wake (:40). The command shown matches the argv the server runs.
+
+**4. Reachability (pass).** Same judgement as in the first verdict. The request chooses only two slugs. watchbill refuses an unknown system, a seat that is not asleep, a live seat and a seat past its hard line. The first prompt is fixed by watchbill, so the requester cannot inject one. The worst a tailnet device can do is start an asleep seat early, at a cost in credits. The caller is now logged: Verified that the service log reads `wake link-bridge --seat lead-designer asked by loopback 127.0.0.1`; on the tailnet it logs the `Tailscale-User-Login` value instead.
+
+**5. The subprocess (pass).** `WAKE_LOCK` is acquired non-blocking, and `WAKE_LAST` adds a 60 s cooldown per (system, seat), recorded only after a 200 (:425-458). The lock is released in a `finally` on every path. `WAKE_TIMEOUT` is 300 s, longer than watchbill's 240 s + 3 s spawn budget. Verified: three concurrent POSTs gave one 200 and two 409s ("a wake is already running"), and the fake watchbill ran exactly once. A repeat 1 s later gave 409 from the cooldown. Another system then gave 200. One race remains, and it is watchbill's, not the bridge's: a bridge wake that coincides with the board daemon's own wake of the same seat. It is outside this change; I recommend raising it with watchbill as a lock in `cmd_resume` / `wake()`.
+
+**6. Suites and probes (pass).** `node --test test/`: 37 of 37 pass. `python3 -I -m unittest discover -s test -p 'test_*.py'`: 42 tests, OK, including `test_foreign_host_is_403` and `WakeSerialised.test_two_clicks_one_wake`. `/routes` reports 0.1.15 and lists `/wake` and `/act/wake`. `POST /act/wake {"system":"no-such-system-7f3a"}` answers 409 with the header and 403 without it, against the real watchbill (Verified).
+
+**7. Docs and versions (pass).** The README "Security model" now calls registered actions the first exception and adds a paragraph naming `/act/wake` as the second, with its gates. The interface-stability line lists 409, 501, 504 and 400. VERSION and the formula tag are 0.1.15; the formula's sha256 is filled at release. `~/dev/herdr-open-links` is unchanged, because the route has no scheme form.
